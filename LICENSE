@@ -22,21 +22,5 @@ SOFTWARE.
 
 ---
 
-THIRD-PARTY COMPONENTS
-
-This project is a derivative work that builds on two upstream projects and
-includes assets from one of them:
-
-- kiro-buddy by Jagatees — https://github.com/Jagatees/kiro-buddy
-  Provides the status system, sprite animations, and Kiro hook integration.
-  Sprite assets under assets/pet/ originate from this project.
-
-- Lockpaw by sorkila (Erik Nielsen) — https://github.com/sorkila/lockpaw
-  Provides the screen-guard design and lock state-machine concept (rebuilt
-  here for Windows/Electron).
-
-The license terms of these upstream projects are NOT reproduced here and have
-not been independently verified in this file. Before redistributing this
-project or its bundled assets, review each upstream project's LICENSE and
-comply with its terms. If an upstream license requires attribution or license
-inclusion, add the corresponding NOTICE/LICENSE text to this repository.
+Character animations and the agent-status system are based on
+Kiro Buddy by Jagatees — https://github.com/Jagatees/kiro-buddy

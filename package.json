@@ -1,7 +1,7 @@
 {
   "name": "kiro-guard",
   "version": "1.0.0",
-  "description": "Tray-only Windows screen lock with a live Kiro agent-status indicator. Combines kiro-buddy's agent status system with Lockpaw's screen-guard concept — rebuilt for Windows in Electron.",
+  "description": "Tray-only Windows screen lock with a live Kiro agent-status indicator. Built on Kiro Buddy's status system, rebuilt for Windows in Electron.",
   "license": "MIT",
   "author": "James Wilson",
   "repository": {

@@ -2,7 +2,7 @@
  * lockController.ts
  *
  * Windows screen lock state machine and orchestrator.
- * Combines Lockpaw's lock logic adapted for Windows via Electron APIs.
+ * Built for Windows via Electron APIs.
  *
  * Lock flow:
  *   unlocked → locking → locked
