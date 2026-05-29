@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Logs
+*.log
+kiro-guard.log
+
+# Local working notes (project-memory system).
+# These stay on disk for session continuity but are not published.
+# They may contain environment-specific detail.
+STATE.md
+journal/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.fixed

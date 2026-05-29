@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kiro Guard — Locked</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      background: #080d0d;
+      color: #fff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    .lock-screen {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding-top: 30vh;
+      background: radial-gradient(ellipse at 30% 70%, rgba(0,212,170,0.06) 0%, transparent 60%),
+                  radial-gradient(ellipse at 70% 30%, rgba(0,180,140,0.04) 0%, transparent 50%),
+                  #080d0d;
+    }
+
+    /* Kiro buddy sprite */
+    .mascot-wrap {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 28px;
+    }
+
+    .glow-pool {
+      width: 180px;
+      height: 28px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(0,212,170,0.22) 0%, transparent 70%);
+      filter: blur(10px);
+      margin-top: -16px;
+    }
+
+    .buddy-sprite {
+      width: 220px;
+      height: 220px;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: contain;
+      filter: drop-shadow(0 0 28px rgba(0,212,170,0.3)) drop-shadow(0 18px 32px rgba(0,0,0,0.5));
+      animation: float 4s ease-in-out infinite;
+      transition: transform 0.6s ease, opacity 0.6s ease, filter 0.4s ease;
+    }
+
+    .buddy-sprite.success {
+      animation: success-bloom 0.6s ease forwards;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-10px); }
+    }
+
+    @keyframes success-bloom {
+      0%   { transform: scale(1);    opacity: 1; }
+      60%  { transform: scale(1.18); opacity: 1; }
+      100% { transform: scale(1.3);  opacity: 0; }
+    }
+
+    /* Status row */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.85);
+      letter-spacing: 0.3px;
+      text-align: center;
+      margin-bottom: 8px;
+      min-height: 24px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #00d4aa;
+      box-shadow: 0 0 10px rgba(0,212,170,0.7);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .status-dot[data-state="working"]  { background: #00d4aa; }
+    .status-dot[data-state="asking"]   { background: #ffb300; box-shadow: 0 0 10px rgba(255,179,0,0.7); }
+    .status-dot[data-state="waiting"]  { background: #ffb300; box-shadow: 0 0 10px rgba(255,179,0,0.7); }
+    .status-dot[data-state="done"]     { background: #4ade80; box-shadow: 0 0 10px rgba(74,222,128,0.7); }
+    .status-dot[data-state="error"]    { background: #ff3b30; box-shadow: 0 0 10px rgba(255,59,48,0.7); }
+    .status-dot[data-state="idle"]     { background: #00d4aa; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1;   transform: scale(1); }
+      50%       { opacity: 0.55; transform: scale(0.85); }
+    }
+
+    /* Sub message */
+    .lock-message {
+      font-size: 13px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 0.3px;
+      text-align: center;
+      max-width: 420px;
+      margin-bottom: 12px;
+      min-height: 18px;
+    }
+
+    /* Timer */
+    .elapsed-timer {
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      color: rgba(255,255,255,0.28);
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      margin-bottom: 40px;
+      min-height: 18px;
+    }
+
+    /* Auth panel */
+    .auth-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      opacity: 1;
+      transition: opacity 0.3s;
+    }
+
+    .auth-btn {
+      padding: 12px 36px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,212,170,0.35);
+      background: rgba(0,212,170,0.1);
+      color: rgba(255,255,255,0.9);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      backdrop-filter: blur(10px);
+      transition: background 0.2s, transform 0.15s;
+      font-family: inherit;
+    }
+
+    .auth-btn:hover {
+      background: rgba(0,212,170,0.2);
+      transform: scale(1.03);
+    }
+
+    .auth-btn:active { transform: scale(0.97); }
+
+    .auth-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .auth-error {
+      font-size: 12px;
+      font-weight: 600;
+      color: #ff3b30;
+      text-shadow: 0 0 12px rgba(255,59,48,0.3);
+      min-height: 16px;
+      text-align: center;
+      animation: shake 0.25s linear;
+    }
+
+    .auth-status {
+      font-size: 13px;
+      color: rgba(0,212,170,0.8);
+      min-height: 18px;
+    }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25%      { transform: translateX(-6px); }
+      75%      { transform: translateX(6px); }
+    }
+
+    .hotkey-hint {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.18);
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+<div class="lock-screen" id="lockScreen">
+
+  <div class="hotkey-hint" id="hotkeyHint"></div>
+
+  <div class="mascot-wrap">
+    <div id="buddy" class="buddy-sprite" aria-hidden="true"></div>
+    <div class="glow-pool"></div>
+  </div>
+
+  <div class="status-row">
+    <div class="status-dot" id="statusDot" data-state="idle"></div>
+    <div id="statusLabel">Kiro Ready</div>
+  </div>
+  <div class="lock-message" id="lockMessage">Screen locked. Agents continue in the background.</div>
+  <div class="elapsed-timer" id="elapsedTimer"></div>
+
+  <div class="auth-panel" id="authPanel">
+    <div class="auth-status" id="authStatus"></div>
+    <button class="auth-btn" id="unlockBtn" onclick="requestUnlock()">
+      Unlock with Windows password
+    </button>
+    <div class="auth-error" id="authError"></div>
+  </div>
+
+</div>
+
+<script>
+  // ============ Sprite animation ============
+  // Frames are loaded from ../../assets/pet/<state>/<state>_NNN.png at runtime.
+  // We compute the URL at runtime so it's relative to the lock.html location
+  // in dist/renderer/.
+  const SPRITE_BASE = '../assets/pet'
+  const FRAME_COUNT = {
+    idle: 12, working: 12, waiting: 12, asking: 12, done: 12, error: 12,
+  }
+  const STATUS_LABELS = {
+    idle:    'Kiro Ready',
+    working: 'Kiro Processing',
+    waiting: 'Kiro Waiting',
+    asking:  'Kiro Asking',
+    done:    'Kiro Done',
+    error:   'Kiro Error',
+  }
+  const FRAME_INTERVAL_MS = 80
+  let currentState = 'idle'
+  let frameIndex = 0
+  let frameTimer = null
+  const buddyEl = document.getElementById('buddy')
+
+  function pad3(n) { return String(n).padStart(3, '0') }
+
+  function startFrames(state) {
+    if (frameTimer) clearInterval(frameTimer)
+    currentState = state
+    frameIndex = 0
+    const total = FRAME_COUNT[state] || 12
+    const draw = () => {
+      const url = `${SPRITE_BASE}/${state}/${state}_${pad3(frameIndex)}.png`
+      buddyEl.style.backgroundImage = `url('${url}')`
+      frameIndex = (frameIndex + 1) % total
+    }
+    draw()
+    frameTimer = setInterval(draw, FRAME_INTERVAL_MS)
+  }
+
+  function applyStatus(state) {
+    const valid = ['idle', 'working', 'waiting', 'asking', 'done', 'error']
+    if (!valid.includes(state)) state = 'idle'
+    document.getElementById('statusDot').dataset.state = state
+    document.getElementById('statusLabel').textContent = STATUS_LABELS[state]
+    if (state !== currentState) startFrames(state)
+  }
+
+  // Default
+  startFrames('idle')
+
+  // ============ Elapsed timer ============
+  let lockedAt = null
+  let showElapsed = true
+
+  function formatElapsed(ms) {
+    const totalSecs = Math.floor(ms / 1000)
+    const h = Math.floor(totalSecs / 3600)
+    const m = Math.floor((totalSecs % 3600) / 60)
+    const s = totalSecs % 60
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  }
+
+  // ============ Unlock ============
+  function requestUnlock() {
+    console.log('[lock] Unlock button clicked')
+    if (!window.kiroLock) {
+      console.error('[lock] window.kiroLock is undefined - preload did not load')
+      return
+    }
+    if (typeof window.kiroLock.requestUnlock !== 'function') {
+      console.error('[lock] window.kiroLock.requestUnlock is not a function')
+      return
+    }
+    try {
+      window.kiroLock.requestUnlock()
+      console.log('[lock] requestUnlock IPC sent')
+    } catch (err) {
+      console.error('[lock] requestUnlock threw:', err)
+    }
+  }
+
+  // Make sure the inline onclick handler can find the function on window
+  window.requestUnlock = requestUnlock
+
+  // Defensive: also bind as an addEventListener so we don't depend on inline
+  // onclick semantics. Runs after DOM is ready.
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('unlockBtn')
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        requestUnlock()
+      })
+    }
+  })
+
+  // ============ IPC ============
+  window.kiroLock?.onInit(function(data) {
+    lockedAt = data.lockedAt
+    showElapsed = data.showElapsed
+    if (data.message) {
+      document.getElementById('lockMessage').textContent = data.message
+    }
+    if (data.status) applyStatus(data.status)
+  })
+
+  window.kiroLock?.onStatus?.(function(payload) {
+    if (payload && payload.status) applyStatus(payload.status)
+  })
+
+  window.kiroLock?.onElapsed(function(now) {
+    if (!showElapsed || !lockedAt) return
+    document.getElementById('elapsedTimer').textContent = formatElapsed(now - lockedAt)
+  })
+
+  window.kiroLock?.onAuthStart(function() {
+    document.getElementById('unlockBtn').disabled = true
+    document.getElementById('authStatus').textContent = 'Authenticating…'
+    document.getElementById('authError').textContent = ''
+  })
+
+  window.kiroLock?.onAuthError(function(msg) {
+    document.getElementById('unlockBtn').disabled = false
+    document.getElementById('authStatus').textContent = ''
+    const errEl = document.getElementById('authError')
+    errEl.textContent = msg
+    errEl.style.animation = 'none'
+    void errEl.offsetHeight
+    errEl.style.animation = 'shake 0.25s linear'
+  })
+
+  window.kiroLock?.onUnlockSuccess(function() {
+    if (frameTimer) clearInterval(frameTimer)
+    document.getElementById('buddy').classList.add('success')
+    document.getElementById('lockMessage').style.opacity = '0'
+    document.getElementById('authPanel').style.opacity = '0'
+    document.getElementById('elapsedTimer').style.opacity = '0'
+  })
+</script>
+</body>
+</html>

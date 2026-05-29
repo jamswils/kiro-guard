@@ -1,0 +1,35 @@
+/* Lock badge on the pet overlay */
+.lock-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  cursor: pointer;
+  z-index: 10;
+  transition: transform 0.15s, background 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.lock-badge:hover {
+  transform: scale(1.1);
+  background: #fff;
+}
+
+.lock-badge.is-locked {
+  background: rgba(0,212,170,0.15);
+  border-color: rgba(0,212,170,0.4);
+}
+
+.pet-shell[data-lock="locked"] .pet-label {
+  background: rgba(0,212,170,0.2);
+  color: #003d33;
+  border: 1px solid rgba(0,212,170,0.4);
+}

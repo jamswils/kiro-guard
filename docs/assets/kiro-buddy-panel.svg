@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="title desc">
+  <title id="title">Kiro Buddy panel preview</title>
+  <desc id="desc">Preview of the Kiro Buddy debug and reply panel.</desc>
+  <rect width="720" height="460" rx="28" fill="#eef2ff"/>
+  <rect x="76" y="54" width="568" height="352" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <circle cx="585" cy="100" r="18" fill="#111827"/>
+  <path d="M576 96l9 9 12-14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="112" y="104" fill="#111827" font-family="Inter,Segoe UI,sans-serif" font-size="28" font-weight="800">Kiro Buddy</text>
+  <text x="112" y="142" fill="#475569" font-family="Inter,Segoe UI,sans-serif" font-size="20">Task List in progress</text>
+  <g font-family="Inter,Segoe UI,sans-serif">
+    <text x="112" y="194" fill="#64748b" font-size="13" font-weight="800">STATUS</text>
+    <text x="112" y="220" fill="#111827" font-size="18" font-weight="800">working</text>
+    <text x="286" y="194" fill="#64748b" font-size="13" font-weight="800">PHASE</text>
+    <text x="286" y="220" fill="#111827" font-size="18" font-weight="800">tasks</text>
+    <text x="460" y="194" fill="#64748b" font-size="13" font-weight="800">TASK</text>
+    <text x="460" y="220" fill="#111827" font-size="18" font-weight="800">tasks.md</text>
+    <text x="112" y="266" fill="#64748b" font-size="13" font-weight="800">SOURCE</text>
+    <text x="112" y="292" fill="#111827" font-size="17" font-weight="700">~/.kiro/status.json</text>
+  </g>
+  <rect x="112" y="320" width="360" height="52" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="132" y="352" fill="#334155" font-family="Inter,Segoe UI,sans-serif" font-size="17">Continue with the next test.</text>
+  <rect x="486" y="320" width="72" height="52" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="505" y="352" fill="#111827" font-family="Inter,Segoe UI,sans-serif" font-size="16" font-weight="800">Copy</text>
+  <rect x="568" y="320" width="72" height="52" rx="10" fill="#2563eb"/>
+  <text x="587" y="352" fill="#ffffff" font-family="Inter,Segoe UI,sans-serif" font-size="16" font-weight="800">Reply</text>
+</svg>

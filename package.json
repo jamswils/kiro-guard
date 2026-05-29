@@ -1,0 +1,50 @@
+{
+  "name": "kiro-guard",
+  "version": "1.0.0",
+  "description": "Tray-only Windows screen lock with a live Kiro agent-status indicator. Combines kiro-buddy's agent status system with Lockpaw's screen-guard concept — rebuilt for Windows in Electron.",
+  "license": "MIT",
+  "author": "James Wilson",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamswils/kiro-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jamswils/kiro-guard/issues"
+  },
+  "homepage": "https://github.com/jamswils/kiro-guard#readme",
+  "main": "dist/main/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && node scripts/build-renderer.cjs",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "node scripts/build-renderer.cjs",
+    "start": "electron .",
+    "status:idle": "node scripts/kiro-status-hook.cjs idle",
+    "status:working": "node scripts/kiro-status-hook.cjs working",
+    "status:done": "node scripts/kiro-status-hook.cjs done",
+    "status:error": "node scripts/kiro-status-hook.cjs error",
+    "hooks:install": "node scripts/install-kiro-hooks.cjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "test": "jest"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "electron": "^39.8.5",
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.0.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.21.5",
+    "fast-check": "^4.8.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^30.4.1",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node"
+  }
+}

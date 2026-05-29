@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "userPromptSubmit": [
+      {
+        "command": "node D:\\Github-Local\\kiro-pets\\kiro-buddy\\scripts\\kiro-status-hook.cjs working"
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "*",
+        "command": "node D:\\Github-Local\\kiro-pets\\kiro-buddy\\scripts\\kiro-status-hook.cjs working"
+      }
+    ],
+    "stop": [
+      {
+        "command": "node D:\\Github-Local\\kiro-pets\\kiro-buddy\\scripts\\kiro-status-hook.cjs done"
+      }
+    ]
+  }
+}
