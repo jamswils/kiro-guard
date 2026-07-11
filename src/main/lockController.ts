@@ -114,6 +114,10 @@ function createLockWindow(display: Electron.Display): BrowserWindow {
 
   win.setAlwaysOnTop(true, 'screen-saver', 1)
 
+  // Remember which display this window covers so display add/remove and
+  // the auth-time shield logic can address windows per-display.
+  ;(win as BrowserWindow & { __displayId?: number }).__displayId = display.id
+
   // Forward renderer console messages to main process stdout so they
   // appear in kiro-guard.log. Without this, lock.html's console.log calls
   // are invisible.
@@ -131,8 +135,86 @@ function createLockWindow(display: Electron.Display): BrowserWindow {
 }
 
 let lockWindows: BrowserWindow[] = []
+let lastLockConfig: LockConfig | null = null
+let displayHandlersRegistered = false
+
+function windowDisplayId(win: BrowserWindow): number | undefined {
+  return (win as BrowserWindow & { __displayId?: number }).__displayId
+}
+
+function shieldWindow(win: BrowserWindow): void {
+  try { win.setAlwaysOnTop(true, 'screen-saver', 1) } catch {}
+  try { win.setKiosk(true) } catch {}
+}
+
+function unshieldWindow(win: BrowserWindow): void {
+  try { win.setKiosk(false) } catch {}
+  try { win.setAlwaysOnTop(false) } catch {}
+}
+
+async function addLockWindowForDisplay(display: Electron.Display, config: LockConfig): Promise<void> {
+  const win = createLockWindow(display)
+  lockWindows.push(win)
+  const lockHtmlPath = require('path').join(__dirname, '..', '..', 'renderer', 'lock.html')
+  await win.loadFile(lockHtmlPath)
+  win.webContents.send('lock-init', {
+    message: config.lockMessage,
+    showElapsed: config.showElapsedTime,
+    lockedAt,
+    status: statusManager.getCurrentStatus()?.status ?? 'idle',
+  })
+  shieldWindow(win)
+  win.show()
+}
+
+/**
+ * Keep lock coverage in sync with the physical display set. Without this,
+ * a monitor plugged in while locked showed the bare desktop, and hovering
+ * the taskbar there exposed app previews (the reported Slack thumbnail
+ * leak). Re-covering on every change closes both gaps.
+ */
+function handleDisplaysChanged(): void {
+  if (lockState !== 'locked' && lockState !== 'unlocking') return
+  const config = lastLockConfig
+  if (!config) return
+
+  const displays = screen.getAllDisplays()
+  const coveredIds = new Set(
+    lockWindows.filter(w => !w.isDestroyed()).map(w => windowDisplayId(w)),
+  )
+
+  // Close windows whose display disappeared.
+  lockWindows = lockWindows.filter(w => {
+    if (w.isDestroyed()) return false
+    const id = windowDisplayId(w)
+    if (id !== undefined && !displays.some(d => d.id === id)) {
+      try { w.destroy() } catch {}
+      return false
+    }
+    return true
+  })
+
+  // Cover newly attached displays.
+  for (const display of displays) {
+    if (!coveredIds.has(display.id)) {
+      addLockWindowForDisplay(display, config).catch(err =>
+        console.error('[LockController] Failed to cover new display:', err),
+      )
+    }
+  }
+}
+
+function registerDisplayHandlers(): void {
+  if (displayHandlersRegistered) return
+  screen.on('display-added', handleDisplaysChanged)
+  screen.on('display-removed', handleDisplaysChanged)
+  screen.on('display-metrics-changed', handleDisplaysChanged)
+  displayHandlersRegistered = true
+}
 
 async function showLockScreens(config: LockConfig): Promise<void> {
+  lastLockConfig = config
+  registerDisplayHandlers()
   const displays = screen.getAllDisplays()
   lockWindows = displays.map(d => createLockWindow(d))
 
@@ -170,17 +252,22 @@ async function showLockScreens(config: LockConfig): Promise<void> {
     }
   }
 
-  // Keep enforcing top-most. Skip when auth is in progress so the
-  // credential dialog can appear above the lock window. Without this
-  // skip, the timer re-applies screen-saver level mid-auth and the
-  // password dialog ends up hidden behind the lock screen.
+  // Keep enforcing top-most. While auth is in progress, skip ONLY the
+  // window on the primary display (where the credential dialog appears)
+  // so the dialog stays visible and clickable. All other displays stay
+  // shielded — previously every display was skipped, which exposed the
+  // taskbar (and Slack hover previews) on secondary monitors for the
+  // whole credential-dialog lifetime.
   topMostTimer = setInterval(() => {
-    if (authInProgress) return
+    const primaryId = screen.getPrimaryDisplay().id
     for (const w of lockWindows) {
-      if (!w.isDestroyed()) {
-        w.setAlwaysOnTop(true, 'screen-saver', 1)
-        w.moveTop()
-      }
+      if (w.isDestroyed()) continue
+      if (authInProgress && windowDisplayId(w) === primaryId) continue
+      w.setAlwaysOnTop(true, 'screen-saver', 1)
+      // moveTop() while the credential dialog is up can push the dialog
+      // behind a lock window on some z-order configurations; only re-raise
+      // when no auth is running.
+      if (!authInProgress) w.moveTop()
     }
   }, 1500)
 }
@@ -302,6 +389,18 @@ try {
 
   $username = $cred.UserName
   $password = $cred.GetNetworkCredential().Password
+
+  # Reject empty passwords outright. PromptForCredential returns a
+  # credential object even when the password box is left blank, and
+  # PrincipalContext.ValidateCredentials with an empty password can
+  # succeed via an unauthenticated LDAP bind on domain contexts. That
+  # combination let "just click OK" unlock the screen. Blank password
+  # is never a valid unlock.
+  if ([string]::IsNullOrEmpty($password)) {
+    Write-Output 'BAD'
+    exit 0
+  }
+
   $valid = $false
 
   $domainPart = ''
@@ -416,10 +515,15 @@ export async function unlock(config: LockConfig): Promise<void> {
     // visible AND its keystrokes reach it. screen-saver level forces our
     // window above all OS dialogs, which is what kept the password prompt
     // hidden previously. 'normal' is below dialogs.
+    //
+    // Only the PRIMARY display is lowered — that is where the Windows
+    // credential dialog appears. Every other display keeps its full
+    // kiosk + screen-saver shield, so multi-monitor setups no longer
+    // expose the taskbar (and Slack hover previews) during auth.
+    const primaryId = screen.getPrimaryDisplay().id
     for (const w of lockWindows) {
-      if (!w.isDestroyed()) {
-        try { w.setKiosk(false) } catch {}
-        try { w.setAlwaysOnTop(false) } catch {}
+      if (!w.isDestroyed() && windowDisplayId(w) === primaryId) {
+        unshieldWindow(w)
       }
     }
 
@@ -432,10 +536,7 @@ export async function unlock(config: LockConfig): Promise<void> {
       // is still on top of everything.
       if (!success) {
         for (const w of lockWindows) {
-          if (!w.isDestroyed()) {
-            try { w.setAlwaysOnTop(true, 'screen-saver', 1) } catch {}
-            try { w.setKiosk(true) } catch {}
-          }
+          if (!w.isDestroyed()) shieldWindow(w)
         }
       }
     }

@@ -23,6 +23,16 @@ try {
   $username = $cred.UserName
   $password = $cred.GetNetworkCredential().Password
   Write-Output "username typed: $username"
+
+  # Mirror the production guard: a blank password is never valid.
+  # ValidateCredentials with an empty password can return true via an
+  # unauthenticated LDAP bind on Domain contexts.
+  if ([string]::IsNullOrEmpty($password)) {
+    Write-Output 'empty password -> rejected'
+    Write-Output 'BAD'
+    exit 0
+  }
+
   $valid = $false
 
   # Parse domain\user or user@domain.com
