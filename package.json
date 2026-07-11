@@ -23,16 +23,16 @@
     "status:done": "node scripts/kiro-status-hook.cjs done",
     "status:error": "node scripts/kiro-status-hook.cjs error",
     "hooks:install": "node scripts/install-kiro-hooks.cjs",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
+    "pack": "electron-builder --dir --config electron-builder.config.js",
+    "dist": "electron-builder --config electron-builder.config.js",
     "test": "jest"
   },
   "dependencies": {
     "chokidar": "^3.6.0",
-    "electron": "^39.8.5",
     "electron-store": "^8.2.0"
   },
   "devDependencies": {
+    "electron": "^39.8.5",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.0.0",
     "electron-builder": "^24.13.3",
