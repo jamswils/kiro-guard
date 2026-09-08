@@ -157,6 +157,19 @@ async function addLockWindowForDisplay(display: Electron.Display, config: LockCo
   lockWindows.push(win)
   const lockHtmlPath = require('path').join(__dirname, '..', '..', 'renderer', 'lock.html')
   await win.loadFile(lockHtmlPath)
+
+  // Re-check state after the await. An unlock can complete during loadFile
+  // (doUnlock tears down on a 600ms timer), and destroyLockScreens() clears
+  // lockWindows — so without this guard the continuation would shield and
+  // show an opaque fullscreen cover on an already-unlocked desktop, in a
+  // state ('unlocked') that quickUnlock() and the emergency hotkey both
+  // ignore. That is another permanently-covered screen.
+  if (lockState !== 'locked' && lockState !== 'locking' && lockState !== 'unlocking') {
+    try { win.destroy() } catch {}
+    lockWindows = lockWindows.filter(w => w !== win)
+    return
+  }
+
   win.webContents.send('lock-init', {
     message: config.lockMessage,
     showElapsed: config.showElapsedTime,
@@ -200,6 +213,36 @@ function handleDisplaysChanged(): void {
       addLockWindowForDisplay(display, config).catch(err =>
         console.error('[LockController] Failed to cover new display:', err),
       )
+    }
+  }
+
+  // Resize existing covers to their display's current bounds.
+  //
+  // This is what makes 'display-metrics-changed' actually do something. A
+  // resolution, DPI or rotation change keeps the SAME display id, so the
+  // add/remove reconciliation above matches everything and no window is
+  // touched — the cover silently keeps its old geometry and leaves an
+  // uncovered strip of live desktop, with a subscribed listener making the
+  // gap look handled. Compare bounds and re-apply.
+  for (const win of lockWindows) {
+    if (win.isDestroyed()) continue
+    const id = windowDisplayId(win)
+    const display = displays.find(d => d.id === id)
+    if (!display) continue
+    const want = display.bounds
+    let current: Electron.Rectangle | undefined
+    try { current = win.getBounds() } catch { current = undefined }
+    if (
+      !current ||
+      current.x !== want.x ||
+      current.y !== want.y ||
+      current.width !== want.width ||
+      current.height !== want.height
+    ) {
+      try { win.setBounds(want) } catch {}
+      // Re-assert the shield: on some Windows configurations a bounds change
+      // drops the window out of kiosk/screen-saver level.
+      shieldWindow(win)
     }
   }
 }
@@ -280,8 +323,13 @@ function destroyLockScreens(): void {
   for (const win of lockWindows) {
     if (!win.isDestroyed()) {
       win.hide()
-      // Use orderOut equivalent: just close without triggering app quit
-      try { win.close() } catch {}
+      // destroy(), NOT close(). These windows are created with
+      // closable: false, so close() is a silent no-op — every lock cycle
+      // leaked a live window plus its renderer, and because lockWindows is
+      // cleared below the reference was dropped while the window stayed
+      // alive on screen. destroy() is the only teardown that actually
+      // applies to a non-closable window.
+      try { win.destroy() } catch {}
     }
   }
   lockWindows = []
@@ -359,7 +407,7 @@ async function authenticateWindows(): Promise<boolean> {
     // re-parsing rules: nested quotes, backticks, dollar signs, and
     // backslashes can be interpreted differently than when read from a
     // file. Running via -File reads the script verbatim from disk, which
-    // matches how `test-auth.ps1` (which works) is invoked.
+    // matches the invocation form that was verified working on Windows.
     //
     // Strategy chain:
     //   1. ContextType.Domain  (online AD validation)
@@ -459,7 +507,14 @@ public static extern bool CloseHandle(IntPtr handle);
     execFile(
       'powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpScript],
-      { windowsHide: false, timeout: 120_000 },
+      // 30s, not 120s. The primary display's cover is deliberately unshielded
+      // for the whole lifetime of this call so the credential dialog is
+      // visible and clickable, which means this timeout IS the maximum
+      // fail-open window: walk away from the prompt and the primary desktop
+      // stays exposed for its full duration while the app still reports
+      // 'locked'. 30s is ample for a human to type a password and bounds the
+      // exposure to a quarter of what it was.
+      { windowsHide: false, timeout: 30_000 },
       (err, stdout, stderr) => {
         try { fs.unlinkSync(tmpScript) } catch {}
         if (err) {
@@ -486,10 +541,29 @@ export async function lock(config: LockConfig): Promise<void> {
   transitionTo('locking')
   lockedAt = Date.now()
 
-  await showLockScreens(config)
-  startInputBlocking()
-  startSleepPrevention()
-  startElapsedTimer()
+  try {
+    await showLockScreens(config)
+    startInputBlocking()
+    startSleepPrevention()
+    startElapsedTimer()
+  } catch (err) {
+    // A rejection here — most often win.loadFile(), made more likely by the
+    // disableHardwareAcceleration + in-process-gpu flags in index.ts —
+    // previously left lockState stuck at 'locking' forever. From 'locking',
+    // unlock(), quickUnlock() AND the emergency hotkey all refuse to act,
+    // while the first display's kiosk cover is already on screen. That left
+    // a permanently covered screen whose only exit was Task Manager,
+    // underneath a screen-saver-level window. Unwind fully instead and hand
+    // the machine back to the user.
+    console.error('[LockController] Lock failed — unwinding to unlocked:', err)
+    stopElapsedTimer()
+    stopSleepPrevention()
+    stopInputBlocking()
+    destroyLockScreens()
+    lockedAt = undefined
+    transitionTo('unlocked')
+    return
+  }
 
   transitionTo('locked')
   console.log('[LockController] Locked')
@@ -618,15 +692,19 @@ export function registerHotkey(config: LockConfig, onTrigger: () => void): void 
 
   // Emergency escape hatch: force-unlock without auth.
   // Use this if the credential dialog ever hangs again. Documented in
-  // STATE.md so users know it exists. Triple-modifier so it's hard to hit
-  // by accident.
+  // README.md ("Help, I'm stuck — just unlock!") so users know it exists.
+  // Triple-modifier so it's hard to hit by accident.
   const emergencyHotkey = 'Control+Shift+Alt+U'
   try {
     const ok = globalShortcut.register(emergencyHotkey, () => {
       console.warn('[LockController] EMERGENCY UNLOCK invoked via hotkey')
-      if (lockState === 'locked' || lockState === 'unlocking') {
+      // 'locking' is included deliberately: if showLockScreens() failed
+      // part-way the state can be 'locking' with a cover already on screen,
+      // and that is precisely when a user reaches for this hotkey. Leaving
+      // it out is what made a failed lock unrecoverable without Task Manager.
+      if (lockState === 'locked' || lockState === 'unlocking' || lockState === 'locking') {
         // Force state to 'locked' so quickUnlock() will accept the call.
-        if (lockState === 'unlocking') {
+        if (lockState === 'unlocking' || lockState === 'locking') {
           authInProgress = false
           lockState = 'locked'
         }
@@ -634,6 +712,10 @@ export function registerHotkey(config: LockConfig, onTrigger: () => void): void 
       }
     })
     if (ok) console.log(`[LockController] Emergency unlock hotkey registered: ${emergencyHotkey}`)
+    // Registration failure was previously silent, while the tray menu
+    // advertises the accelerator regardless — so the documented escape hatch
+    // could be dead with no warning anywhere.
+    else console.warn(`[LockController] FAILED to register emergency unlock hotkey: ${emergencyHotkey} — the documented escape hatch is NOT available`)
   } catch (err) {
     console.warn('[LockController] Emergency hotkey registration error:', err)
   }

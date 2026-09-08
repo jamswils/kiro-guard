@@ -45,6 +45,10 @@
   },
   "jest": {
     "preset": "ts-jest",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts"
+    ]
   }
 }

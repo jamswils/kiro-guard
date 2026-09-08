@@ -222,12 +222,4 @@ describe('auth helper script guards (Bug 2)', () => {
     expect(firstStrategyIndex).toBeGreaterThan(-1)
     expect(guardIndex).toBeLessThan(firstStrategyIndex)
   })
-
-  it('standalone test-auth.ps1 carries the same guard', () => {
-    const script = fs.readFileSync(
-      path.join(__dirname, '..', '..', 'test-auth.ps1'),
-      'utf-8',
-    )
-    expect(script).toMatch(/IsNullOrEmpty\(\$password\)/)
-  })
 })

@@ -1,0 +1,21 @@
+# Notices and attributions
+
+Kiro Guard is licensed under the MIT License — see `LICENSE`.
+
+## Kiro Buddy
+
+Character animations, the pet sprite frames, and the agent-status system are
+based on **Kiro Buddy** by Jagatees:
+
+https://github.com/Jagatees/kiro-buddy
+
+Kiro Guard wraps that work in a screen-cover experience for Windows.
+
+---
+
+Why this file exists rather than a section appended to `LICENSE`: GitHub's
+license detection (`licensee`) requires roughly 98% similarity to a known
+license template. Appending an attribution block to `LICENSE` dropped it below
+that threshold, so GitHub reported the project as `NOASSERTION` — no MIT badge,
+and automated license scanners read Kiro Guard as unlicensed. `LICENSE` is now
+verbatim MIT and attribution lives here.
