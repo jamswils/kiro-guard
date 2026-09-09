@@ -113,10 +113,11 @@ describe('Fix 2: lock-init payload', () => {
       showElapsedTime: true,
       lockMessage: 'msg',
     }
-    const on = mod.buildLockInitPayload({ ...base, requireAuth: true }, 123, 'idle')
-    const off = mod.buildLockInitPayload({ ...base, requireAuth: false }, 123, 'idle')
-    expect(on).toMatchObject({ message: 'msg', showElapsed: true, lockedAt: 123, status: 'idle', requireAuth: true })
+    const on = mod.buildLockInitPayload({ ...base, requireAuth: true, authMode: 'windows' }, 123, 'idle')
+    const off = mod.buildLockInitPayload({ ...base, requireAuth: false, authMode: 'none' }, 123, 'idle')
+    expect(on).toMatchObject({ message: 'msg', showElapsed: true, lockedAt: 123, status: 'idle', requireAuth: true, authMode: 'windows' })
     expect(off.requireAuth).toBe(false)
+    expect(off.authMode).toBe('none')
   })
 })
 
@@ -124,7 +125,7 @@ describe('Fix 2: lock-init payload', () => {
 // Fix 3 — lock.html label honesty (real renderer, jsdom)
 // ---------------------------------------------------------------------------
 
-type InitData = { message: string; showElapsed: boolean; lockedAt: number; status?: string; requireAuth?: boolean }
+type InitData = { message: string; showElapsed: boolean; lockedAt: number; status?: string; requireAuth?: boolean; authMode?: 'windows' | 'passphrase' | 'none'; recoveryAvailable?: boolean; kirocrewEnabled?: boolean }
 
 function loadLockHtml(): { fireInit: (d: InitData) => void } {
   const html = fs.readFileSync(
@@ -139,7 +140,10 @@ function loadLockHtml(): { fireInit: (d: InitData) => void } {
     onAuthStart: () => {},
     onAuthError: () => {},
     onUnlockSuccess: () => {},
+    onRecoveryOffered: (h: (q: string) => void) => { (window as unknown as { __rec: unknown }).__rec = h },
+    onKiroCrewPulse: (h: (s: unknown) => void) => { (window as unknown as { __pulse: unknown }).__pulse = h },
     requestUnlock: () => {},
+    submitPassphrase: () => {},
   }
   // Stub canvas/Image so the sprite loop in lock.html does not throw in jsdom.
   ;(HTMLCanvasElement.prototype as unknown as { getContext: () => unknown }).getContext = () => ({
@@ -173,7 +177,7 @@ describe('Fix 3: lock screen tells the truth about the password step', () => {
     expect(btn.textContent).not.toMatch(/password/i)
     const hint = document.getElementById('authHint')!.textContent!
     expect(hint).toMatch(/password protection is off/i)
-    expect(hint).toMatch(/Require password to unlock/)
+    expect(hint).toMatch(/"Unlock with" in the tray menu/)
   })
 
   it('never claims a password step before the init payload arrives', () => {

@@ -29,6 +29,10 @@ fs.copyFileSync(
   path.join(root, 'src', 'renderer', 'lock.html'),
   path.join(outDir, 'lock.html'),
 )
+fs.copyFileSync(
+  path.join(root, 'src', 'renderer', 'settings.html'),
+  path.join(outDir, 'settings.html'),
+)
 
 // Copy CSS files
 fs.copyFileSync(

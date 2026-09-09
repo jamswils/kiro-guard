@@ -12,7 +12,22 @@ import {
   onLockStateChange,
   registerHotkey,
   unregisterHotkey,
+  configureKiroCrewFeed,
 } from './lockController'
+import { openSettingsWindow, chooseAuthMode } from './settingsWindow'
+import type { AuthMode } from '../shared/types'
+
+/** Tray / hotkey unlock: Windows prompt, or instant for 'none'. Passphrase mode
+ *  is typed on the cover itself, so from the tray we just bring the cover forward. */
+async function unlockFromTray(): Promise<void> {
+  const cfg = getConfig()
+  if (cfg.lock.authMode === 'none') quickUnlock()
+  else if (cfg.lock.authMode === 'windows') await unlock(cfg.lock)
+}
+
+function refreshTray(): void {
+  tray?.setContextMenu(buildTrayMenu())
+}
 
 // Disable hardware acceleration in environments where the GPU process is
 // unstable (RDP, virtual machines, locked-down desktops). Set
@@ -38,12 +53,8 @@ function buildTrayMenu(): Electron.Menu {
       label: locked ? 'Unlock Screen' : 'Lock Screen',
       accelerator: config.lock.hotkey,
       click: async () => {
-        if (locked) {
-          if (config.lock.requireAuth) await unlock(config.lock)
-          else quickUnlock()
-        } else {
-          await lock(config.lock)
-        }
+        if (locked) await unlockFromTray()
+        else await lock(config.lock)
       },
     },
     { type: 'separator' },
@@ -51,11 +62,26 @@ function buildTrayMenu(): Electron.Menu {
       label: 'Settings',
       submenu: [
         {
-          label: 'Require password to unlock',
-          type: 'checkbox',
-          checked: config.lock.requireAuth,
-          click: (item) => setLockConfig({ requireAuth: item.checked }),
+          label: 'Unlock with',
+          submenu: (['windows', 'passphrase', 'none'] as AuthMode[]).map((mode) => ({
+            label: mode === 'windows' ? 'Windows password'
+                 : mode === 'passphrase' ? (config.lock.passphrase ? 'Kiro Guard passphrase' : 'Kiro Guard passphrase… (set one)')
+                 : 'Nothing — a click unlocks',
+            type: 'radio' as const,
+            checked: config.lock.authMode === mode,
+            click: () => chooseAuthMode(mode, refreshTray),
+          })),
         },
+        {
+          label: config.lock.passphrase ? 'Change passphrase…' : 'Set a passphrase…',
+          click: () => openSettingsWindow('passphrase', refreshTray),
+        },
+        { type: 'separator' },
+        {
+          label: config.kirocrew.enabled ? 'KiroCrew feed: on — settings…' : 'KiroCrew feed: off — settings…',
+          click: () => openSettingsWindow('kirocrew', refreshTray),
+        },
+        { type: 'separator' },
         {
           label: 'Auto-lock when agent starts',
           type: 'checkbox',
@@ -91,10 +117,7 @@ function setupTray(): void {
     const config = getConfig()
     const state = getCurrentLockState()
     if (state === 'unlocked') await lock(config.lock)
-    else if (state === 'locked') {
-      if (config.lock.requireAuth) await unlock(config.lock)
-      else quickUnlock()
-    }
+    else if (state === 'locked') await unlockFromTray()
   })
 }
 
@@ -106,6 +129,9 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers()
   setupTray()
+  // Lock screen's KiroCrew feed reads live config each poll, so settings changes
+  // made while locked apply on the next tick.
+  configureKiroCrewFeed(() => getConfig().kirocrew)
 
   // Global hotkey: lock or unlock
   registerHotkey(config.lock, async () => {
@@ -114,8 +140,7 @@ app.whenReady().then(async () => {
     if (state === 'unlocked') {
       await lock(cfg.lock)
     } else if (state === 'locked') {
-      if (cfg.lock.requireAuth) await unlock(cfg.lock)
-      else quickUnlock()
+      await unlockFromTray()
     }
   })
 

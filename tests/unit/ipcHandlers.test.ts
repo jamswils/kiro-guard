@@ -26,6 +26,7 @@ jest.mock('../../src/main/configStore', () => ({
     lock: {
       hotkey: 'Control+Shift+L',
       requireAuth: false,
+      authMode: 'none',
       autoLockOnAgentStart: false,
       showElapsedTime: true,
       lockMessage: 'Screen locked.',
@@ -43,6 +44,7 @@ jest.mock('../../src/main/lockController', () => ({
   lock: lockMock,
   unlock: unlockMock,
   quickUnlock: quickUnlockMock,
+  unlockWithPassphrase: jest.fn(),
   getCurrentLockState: jest.fn(() => mockLockState),
   getLockedAt: jest.fn(() => undefined),
 }))
@@ -67,7 +69,8 @@ describe('registerIpcHandlers', () => {
   it('registers all required IPC channels for lock control', () => {
     // 3 fire-and-forget channels. setLockConfig is deliberately absent — see
     // the dedicated test below.
-    expect(ipcMain.on).toHaveBeenCalledTimes(3)
+    // lockRequest, unlockRequest, unlockWithPassphrase, toggleLock
+    expect(ipcMain.on).toHaveBeenCalledTimes(4)
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.lockRequest, expect.any(Function))
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.unlockRequest, expect.any(Function))
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.toggleLock, expect.any(Function))
