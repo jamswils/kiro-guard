@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld('kiroBuddy', {
 
 // Lock screen preload extras — events from main to lock window
 contextBridge.exposeInMainWorld('kiroLock', {
-  onInit(handler: (data: { message: string; showElapsed: boolean; lockedAt: number; status?: string }) => void): void {
+  onInit(handler: (data: { message: string; showElapsed: boolean; lockedAt: number; status?: string; requireAuth?: boolean }) => void): void {
     ipcRenderer.on('lock-init', (_e, data) => handler(data))
   },
   onStatus(handler: (payload: { status: string; message?: string }) => void): void {

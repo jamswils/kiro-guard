@@ -61,6 +61,8 @@ export interface AppConfig {
   pollIntervalMs: number
   petScale: number
   lock: LockConfig
+  /** Bumped by configStore.runConfigMigrations(); absent on pre-migration installs. */
+  configVersion?: number
 }
 
 export interface LockConfig {

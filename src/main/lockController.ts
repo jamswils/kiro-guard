@@ -135,6 +135,29 @@ function createLockWindow(display: Electron.Display): BrowserWindow {
 }
 
 let lockWindows: BrowserWindow[] = []
+
+/**
+ * Payload sent to every lock window on 'lock-init'. Exported so tests can
+ * pin its shape.
+ *
+ * `requireAuth` is included so the lock screen can label its unlock button
+ * honestly. Before this the button always read "Unlock with Windows
+ * password" even when requireAuth was false and a click unlocked instantly
+ * — the field report "it just unlocks when you click it".
+ */
+export function buildLockInitPayload(
+  config: LockConfig,
+  lockedAtMs: number | undefined,
+  status: string,
+): { message: string; showElapsed: boolean; lockedAt: number | undefined; status: string; requireAuth: boolean } {
+  return {
+    message: config.lockMessage,
+    showElapsed: config.showElapsedTime,
+    lockedAt: lockedAtMs,
+    status,
+    requireAuth: config.requireAuth === true,
+  }
+}
 let lastLockConfig: LockConfig | null = null
 let displayHandlersRegistered = false
 
@@ -170,12 +193,9 @@ async function addLockWindowForDisplay(display: Electron.Display, config: LockCo
     return
   }
 
-  win.webContents.send('lock-init', {
-    message: config.lockMessage,
-    showElapsed: config.showElapsedTime,
-    lockedAt,
-    status: statusManager.getCurrentStatus()?.status ?? 'idle',
-  })
+  win.webContents.send('lock-init', buildLockInitPayload(
+    config, lockedAt, statusManager.getCurrentStatus()?.status ?? 'idle',
+  ))
   shieldWindow(win)
   win.show()
 }
@@ -266,12 +286,9 @@ async function showLockScreens(config: LockConfig): Promise<void> {
 
   for (const win of lockWindows) {
     await win.loadFile(lockHtmlPath)
-    win.webContents.send('lock-init', {
-      message: config.lockMessage,
-      showElapsed: config.showElapsedTime,
-      lockedAt,
-      status: currentStatus?.status ?? 'idle',
-    })
+    win.webContents.send('lock-init', buildLockInitPayload(
+      config, lockedAt, currentStatus?.status ?? 'idle',
+    ))
     win.setAlwaysOnTop(true, 'screen-saver', 1)
     // Kiosk mode hides the Windows taskbar over the fullscreen window
     try { win.setKiosk(true) } catch {}

@@ -37,6 +37,7 @@ const schema: ElectronStore.Schema<AppConfigSchema> = {
   clickThrough:   { type: 'boolean' },
   pollIntervalMs: { type: 'number' },
   petScale:       { type: 'number', minimum: 0.6, maximum: 1.4 },
+  configVersion:  { type: 'number' },
   lock: {
     type: 'object',
     properties: {
@@ -53,7 +54,12 @@ const schema: ElectronStore.Schema<AppConfigSchema> = {
 
 const DEFAULT_LOCK_CONFIG: LockConfig = {
   hotkey: 'Control+Shift+L',
-  requireAuth: false,
+  // Default ON. With this false, every unlock surface (lock-screen button,
+  // tray, hotkey) calls quickUnlock() and the cover drops on a single click
+  // — users reported the guard "just unlocks when you click it". A guard
+  // that opens on a click is not a guard; quick mode is opt-out via the
+  // tray's "Require password to unlock" checkbox.
+  requireAuth: true,
   autoLockOnAgentStart: false,
   showElapsedTime: true,
   lockMessage: 'Agents are working. Screen locked.',
@@ -89,6 +95,39 @@ const store = new ElectronStore<AppConfigSchema>({
   schema,
   defaults: DEFAULT_CONFIG,
 })
+
+/**
+ * One-time config migrations. Runs at module load.
+ *
+ * v2 — password protection on by default. electron-store writes `defaults`
+ * to disk on first run, so every install created while the default was
+ * `requireAuth: false` has that literal persisted; changing the default
+ * alone would fix fresh installs only, not the users who reported the
+ * click-to-unlock behaviour. Flip a persisted `false` to `true` exactly
+ * once. This is the safe direction (the cover asks for a password instead
+ * of dropping on a click); anyone who wants quick mode back re-unticks
+ * "Require password to unlock" in the tray and the migration never runs
+ * again for them.
+ */
+export const CONFIG_VERSION = 2
+
+type KeyValueStore = {
+  get(key: string, defaultValue?: unknown): unknown
+  set(key: string, value: unknown): void
+}
+
+export function runConfigMigrations(s: KeyValueStore = store as unknown as KeyValueStore): void {
+  const version = Number(s.get('configVersion', 1)) || 1
+  if (version < 2) {
+    if (s.get('lock.requireAuth', DEFAULT_LOCK_CONFIG.requireAuth) === false) {
+      s.set('lock.requireAuth', true)
+      console.log('[configStore] migration v2: lock.requireAuth false → true (password protection is now on by default; opt out via the tray menu)')
+    }
+    s.set('configVersion', CONFIG_VERSION)
+  }
+}
+
+runConfigMigrations()
 
 export function getConfig(): AppConfigSchema {
   const envPath = process.env.KIRO_GUARD_STATUS_FILE
