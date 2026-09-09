@@ -136,6 +136,48 @@
       min-height: 18px;
     }
 
+    /* KiroCrew activity block — what the agents are doing right now */
+    .crew {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      margin: 2px 0 10px;
+      max-width: 640px;
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.62);
+      line-height: 1.45;
+      text-align: center;
+    }
+    .crew[data-visible="true"] { display: flex; }
+    .crew-head { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.82); }
+    .crew-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 640px; }
+    .crew-line[data-active="true"]::before { content: "▶ "; color: #00d4aa; }
+    .crew-line[data-active="false"]::before { content: "– "; color: rgba(255,255,255,0.35); }
+    .crew-age { font-size: 11px; color: rgba(255,255,255,0.4); }
+    .crew[data-stale="true"] .crew-head,
+    .crew[data-stale="true"] .crew-age { color: #ffc460; }
+    .crew[data-error="true"] .crew-head { color: #ffc460; }
+
+    /* Passphrase input (authMode = passphrase) */
+    .pass-row { display: none; gap: 8px; align-items: center; }
+    .pass-row[data-visible="true"] { display: flex; }
+    .pass-input {
+      width: 300px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.92);
+      font-size: 15px;
+      font-family: inherit;
+      text-align: center;
+      letter-spacing: 2px;
+      outline: none;
+    }
+    .pass-input:focus { border-color: rgba(0,212,170,0.55); }
+    .pass-question { font-size: 13px; color: #00d4aa; min-height: 18px; }
+
     /* Auth panel */
     .auth-panel {
       display: flex;
@@ -229,13 +271,26 @@
     <div id="statusLabel">Kiro Ready</div>
   </div>
   <div class="lock-message" id="lockMessage">Screen locked. Agents continue in the background.</div>
+
+  <!-- Live KiroCrew activity (kirocrewFeed.ts). Hidden until the first snapshot. -->
+  <div class="crew" id="crew" data-visible="false" data-stale="false" data-error="false" aria-live="polite">
+    <div class="crew-head" id="crewHead"></div>
+    <div id="crewLines"></div>
+    <div class="crew-age" id="crewAge"></div>
+  </div>
+
   <div class="elapsed-timer" id="elapsedTimer"></div>
 
   <div class="auth-panel" id="authPanel">
     <div class="auth-status" id="authStatus"></div>
+    <div class="pass-question" id="passQuestion"></div>
+    <div class="pass-row" id="passRow" data-visible="false">
+      <input class="pass-input" id="passInput" type="password" autocomplete="off"
+             aria-label="Kiro Guard passphrase" placeholder="passphrase">
+    </div>
     <!-- Label is set from the lock-init payload (requireAuth) so the screen
          never promises a password step that the config will not enforce. -->
-    <button class="auth-btn" id="unlockBtn" onclick="requestUnlock()">
+    <button class="auth-btn" id="unlockBtn" type="button">
       Unlock
     </button>
     <div class="auth-hint" id="authHint"></div>
@@ -269,14 +324,32 @@
 
   function pad3(n) { return String(n).padStart(3, '0') }
 
+  // Every frame is its own PNG. Swapping background-image to a URL the browser has
+  // not decoded yet paints NOTHING for a moment, which read as the buddy vanishing
+  // right after a wrong password. Decode the whole state once, then swap from cache.
+  const preloaded = {}
+  function preloadFrames(state, total) {
+    if (preloaded[state]) return preloaded[state]
+    const imgs = []
+    for (let i = 0; i < total; i++) {
+      const img = new Image()
+      img.src = `${SPRITE_BASE}/${state}/${state}_${pad3(i)}.png`
+      imgs.push(img)
+    }
+    preloaded[state] = imgs
+    return imgs
+  }
+
   function startFrames(state) {
     if (frameTimer) clearInterval(frameTimer)
     currentState = state
     frameIndex = 0
     const total = FRAME_COUNT[state] || 12
+    const frames = preloadFrames(state, total)
     const draw = () => {
-      const url = `${SPRITE_BASE}/${state}/${state}_${pad3(frameIndex)}.png`
-      buddyEl.style.backgroundImage = `url('${url}')`
+      const img = frames[frameIndex]
+      // Hold the previous frame rather than show a blank while this one decodes.
+      if (img.complete && img.naturalWidth > 0) buddyEl.style.backgroundImage = `url('${img.src}')`
       frameIndex = (frameIndex + 1) % total
     }
     draw()
@@ -329,8 +402,9 @@
   // Make sure the inline onclick handler can find the function on window
   window.requestUnlock = requestUnlock
 
-  // Defensive: also bind as an addEventListener so we don't depend on inline
-  // onclick semantics. Runs after DOM is ready.
+  // The button is bound here, once. (An inline onclick used to be bound as well,
+  // which fired requestUnlock twice per click — harmless for the Windows prompt,
+  // a double submit for a passphrase.)
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('unlockBtn')
     if (btn) {
@@ -346,18 +420,130 @@
   // on click. When requireAuth is off a click unlocks immediately (that is
   // the configured behaviour, not a bug) — say so, and say where to turn
   // the password step on, instead of advertising a password prompt.
-  function applyAuthMode(requireAuth) {
+  var authMode = 'windows'
+  var recoveryQuestion = ''
+
+  // Three modes, one honest label each:
+  //   windows    - button opens the Windows credential prompt
+  //   passphrase - a box on the cover; Enter or the button submits it
+  //   none       - a click unlocks, and the screen says so
+  function applyAuthMode(mode, requireAuth) {
+    authMode = mode || (requireAuth === true ? 'windows' : 'none')
     const btn = document.getElementById('unlockBtn')
     const hint = document.getElementById('authHint')
-    if (requireAuth === true) {
+    const row = document.getElementById('passRow')
+    // A mode change is a fresh start: no leftover recovery question, error text
+    // or typed characters from the previous mode may survive onto the new cover.
+    recoveryQuestion = ''
+    document.getElementById('passQuestion').textContent = ''
+    document.getElementById('authError').textContent = ''
+    document.getElementById('authStatus').textContent = ''
+    const pi = document.getElementById('passInput')
+    pi.value = ''
+    pi.placeholder = 'passphrase'
+    btn.disabled = false
+    row.dataset.visible = String(authMode === 'passphrase')
+    if (authMode === 'windows') {
       btn.textContent = 'Unlock with Windows password'
       hint.textContent = ''
+    } else if (authMode === 'passphrase') {
+      btn.textContent = 'Unlock'
+      hint.textContent = 'Type your Kiro Guard passphrase and press Enter.'
+      setTimeout(function () { document.getElementById('passInput').focus() }, 50)
     } else {
       btn.textContent = 'Unlock'
       hint.textContent = 'Password protection is off — this unlocks immediately. ' +
-        'To require a password, tick "Require password to unlock" in the tray menu.'
+        'To require a password, choose "Unlock with" in the tray menu.'
     }
   }
+
+  function submitPassphrase() {
+    const input = document.getElementById('passInput')
+    const text = input.value
+    if (!text) { input.focus(); return }
+    input.value = ''
+    document.getElementById('authError').textContent = ''
+    if (window.kiroLock && typeof window.kiroLock.submitPassphrase === 'function') {
+      window.kiroLock.submitPassphrase(text)
+    }
+  }
+  window.submitPassphrase = submitPassphrase
+
+  // In passphrase mode the Unlock button submits the box instead of asking main
+  // for a Windows prompt.
+  var _requestUnlockWindows = requestUnlock
+  requestUnlock = function () {
+    if (authMode === 'passphrase') submitPassphrase()
+    else _requestUnlockWindows()
+  }
+  window.requestUnlock = requestUnlock
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const input = document.getElementById('passInput')
+    if (input) input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submitPassphrase() }
+    })
+  })
+
+  // ============ KiroCrew activity ============
+  var lastPulse = null
+  var STALE_MS = 90000
+
+  function fmtAge(s) {
+    s = Math.max(0, Math.floor(s))
+    if (s < 60) return s + 's'
+    if (s < 3600) return Math.floor(s / 60) + 'm'
+    return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
+  }
+
+  function renderPulse(snap, now) {
+    const box = document.getElementById('crew')
+    if (!snap) { box.dataset.visible = 'false'; return }
+    now = now || Date.now()
+    const head = document.getElementById('crewHead')
+    const lines = document.getElementById('crewLines')
+    const age = document.getElementById('crewAge')
+    box.dataset.visible = 'true'
+    box.dataset.error = String(Boolean(snap.error))
+    lines.textContent = ''
+    if (snap.error) {
+      head.textContent = 'KiroCrew feed unreachable'
+      const l = document.createElement('div'); l.className = 'crew-line'; l.textContent = snap.error
+      lines.appendChild(l)
+      age.textContent = 'last tried ' + fmtAge((now - snap.receivedAt) / 1000) + ' ago'
+      box.dataset.stale = 'true'
+      return
+    }
+    const bits = []
+    bits.push(snap.chatsActive + (snap.chatsActive === 1 ? ' chat active' : ' chats active'))
+    bits.push(snap.agentsRunning + (snap.agentsRunning === 1 ? ' agent running' : ' agents running'))
+    if (snap.turnsLast10m) bits.push(snap.turnsLast10m + ' turns in 10m')
+    if (snap.lastMessageAgeS !== null && snap.lastMessageAgeS !== undefined) bits.push('last message ' + fmtAge(snap.lastMessageAgeS) + ' ago')
+    head.textContent = snap.headline + '  ·  ' + bits.join('  ·  ')
+    const rows = (snap.chats && snap.chats.length) ? snap.chats.map(function (c) {
+      return { text: c.title + '  (' + c.state + ', ' + fmtAge(c.ageS) + ')', active: c.active }
+    }) : (snap.lines || []).map(function (t) { return { text: t.replace(/^[>-]\s*/, ''), active: t.charAt(0) === '>' } })
+    rows.forEach(function (r) {
+      const l = document.createElement('div')
+      l.className = 'crew-line'; l.dataset.active = String(r.active); l.textContent = r.text
+      lines.appendChild(l)
+    })
+    const stale = (now - snap.generatedAt) > STALE_MS
+    box.dataset.stale = String(stale)
+    age.textContent = 'updated ' + fmtAge((now - snap.generatedAt) / 1000) + ' ago' + (stale ? '  ·  feed stale, may be out of date' : '')
+  }
+  window.renderPulse = renderPulse
+
+  window.kiroLock?.onKiroCrewPulse?.(function (snap) {
+    lastPulse = snap
+    renderPulse(snap)
+  })
+
+  window.kiroLock?.onRecoveryOffered?.(function (q) {
+    recoveryQuestion = q
+    document.getElementById('passQuestion').textContent = q ? ('Forgot it? Answer: ' + q) : ''
+    document.getElementById('passInput').placeholder = q ? 'passphrase or answer' : 'passphrase'
+  })
 
   window.kiroLock?.onInit(function(data) {
     lockedAt = data.lockedAt
@@ -366,7 +552,12 @@
       document.getElementById('lockMessage').textContent = data.message
     }
     if (data.status) applyStatus(data.status)
-    applyAuthMode(data.requireAuth)
+    applyAuthMode(data.authMode, data.requireAuth)
+    if (data.kirocrewEnabled && !lastPulse) {
+      // Show the block straight away so the user knows a feed is expected.
+      renderPulse({ headline: 'KiroCrew', chatsActive: 0, agentsRunning: 0, turnsLast10m: 0,
+                    lastMessageAgeS: null, chats: [], lines: ['connecting…'], generatedAt: Date.now(), receivedAt: Date.now() })
+    }
   })
 
   window.kiroLock?.onStatus?.(function(payload) {
@@ -374,6 +565,7 @@
   })
 
   window.kiroLock?.onElapsed(function(now) {
+    if (lastPulse) renderPulse(lastPulse, now)
     if (!showElapsed || !lockedAt) return
     document.getElementById('elapsedTimer').textContent = formatElapsed(now - lockedAt)
   })
@@ -386,6 +578,7 @@
 
   window.kiroLock?.onAuthError(function(msg) {
     document.getElementById('unlockBtn').disabled = false
+    if (authMode === 'passphrase') setTimeout(function () { document.getElementById('passInput').focus() }, 30)
     document.getElementById('authStatus').textContent = ''
     const errEl = document.getElementById('authError')
     errEl.textContent = msg

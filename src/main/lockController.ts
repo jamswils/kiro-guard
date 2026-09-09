@@ -19,7 +19,10 @@
 
 import { globalShortcut, powerSaveBlocker, BrowserWindow, screen, app } from 'electron'
 import { execFile } from 'child_process'
-import type { LockState, LockConfig, StatusPayload } from '../shared/types'
+import type { LockState, LockConfig, StatusPayload, KiroCrewFeedConfig } from '../shared/types'
+import { IPC_CHANNELS } from '../shared/ipc'
+import { verifySecret, verifyRecovery } from './passphrase'
+import { KiroCrewFeed, type PulseSnapshot } from './kirocrewFeed'
 import { statusManager } from './statusManager'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +45,14 @@ let elapsedTimer: NodeJS.Timeout | null = null
 let topMostTimer: NodeJS.Timeout | null = null
 let authInProgress = false
 let failCount = 0
+/** After this many wrong passphrases the recovery question is offered. */
+export const RECOVERY_AFTER_FAILURES = 5
+/** 0.99, not 1.0 — see createLockWindow(). */
+export const LOCK_WINDOW_OPACITY = 0.99
+/** KiroCrew feed lives only while locked. Config getter is injected by index.ts. */
+let feed: KiroCrewFeed | null = null
+let kirocrewConfigGetter: (() => KiroCrewFeedConfig) | null = null
+let feedFactory: ((getCfg: () => KiroCrewFeedConfig, onSnap: (s: PulseSnapshot) => void) => KiroCrewFeed) | null = null
 let failCooldownTimer: NodeJS.Timeout | null = null
 let lockStatusUnsubscribe: (() => void) | null = null
 const FAIL_COOLDOWN_MS = 30_000
@@ -98,9 +109,19 @@ function createLockWindow(display: Electron.Display): BrowserWindow {
     focusable: true,
     show: false,
     backgroundColor: '#0a0f0f',
+    // KEEP THE WORK RUNNING. Chromium's occlusion tracker (Chrome, and the Kiro
+    // IDE which is Electron) treats a window it covers as hidden and throttles
+    // its renderer — so a fully opaque cover slows the very agents it guards.
+    // Windows only counts a window as occluding when it is fully opaque; at
+    // 0.99 the cover becomes a layered window and is ignored by that check,
+    // while staying visually black. Same trick Freeze Screen relies on.
+    opacity: LOCK_WINDOW_OPACITY,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // The cover's own clock/status timers must not be throttled when the
+      // window loses focus to the credential prompt.
+      backgroundThrottling: false,
       // Disable sandbox for the preload script so it can use require() to
       // load relative modules like '../shared/ipc'. Without this, Electron
       // runs the preload in a sandboxed context that only allows specific
@@ -145,18 +166,39 @@ let lockWindows: BrowserWindow[] = []
  * password" even when requireAuth was false and a click unlocked instantly
  * — the field report "it just unlocks when you click it".
  */
+export interface LockInitPayload {
+  message: string
+  showElapsed: boolean
+  lockedAt: number | undefined
+  status: string
+  requireAuth: boolean
+  authMode: 'windows' | 'passphrase' | 'none'
+  /** Whether a recovery question exists. The question itself is only sent after repeated failures. */
+  recoveryAvailable: boolean
+  kirocrewEnabled: boolean
+}
+
 export function buildLockInitPayload(
   config: LockConfig,
   lockedAtMs: number | undefined,
   status: string,
-): { message: string; showElapsed: boolean; lockedAt: number | undefined; status: string; requireAuth: boolean } {
+  kirocrewEnabled: boolean = false,
+): LockInitPayload {
+  const authMode = config.authMode ?? (config.requireAuth ? 'windows' : 'none')
   return {
     message: config.lockMessage,
     showElapsed: config.showElapsedTime,
     lockedAt: lockedAtMs,
     status,
-    requireAuth: config.requireAuth === true,
+    requireAuth: authMode !== 'none',
+    authMode,
+    recoveryAvailable: Boolean(config.recovery),
+    kirocrewEnabled,
   }
+}
+
+function kirocrewEnabled(): boolean {
+  try { return Boolean(kirocrewConfigGetter?.().enabled) } catch { return false }
 }
 let lastLockConfig: LockConfig | null = null
 let displayHandlersRegistered = false
@@ -194,8 +236,9 @@ async function addLockWindowForDisplay(display: Electron.Display, config: LockCo
   }
 
   win.webContents.send('lock-init', buildLockInitPayload(
-    config, lockedAt, statusManager.getCurrentStatus()?.status ?? 'idle',
+    config, lockedAt, statusManager.getCurrentStatus()?.status ?? 'idle', kirocrewEnabled(),
   ))
+  if (feed?.latest) win.webContents.send(IPC_CHANNELS.kirocrewPulse, feed.latest)
   shieldWindow(win)
   win.show()
 }
@@ -287,7 +330,7 @@ async function showLockScreens(config: LockConfig): Promise<void> {
   for (const win of lockWindows) {
     await win.loadFile(lockHtmlPath)
     win.webContents.send('lock-init', buildLockInitPayload(
-      config, lockedAt, currentStatus?.status ?? 'idle',
+      config, lockedAt, currentStatus?.status ?? 'idle', kirocrewEnabled(),
     ))
     win.setAlwaysOnTop(true, 'screen-saver', 1)
     // Kiosk mode hides the Windows taskbar over the fullscreen window
@@ -380,16 +423,33 @@ function stopInputBlocking(): void {
 // Sleep prevention
 // ---------------------------------------------------------------------------
 
+// Two blockers, not one. 'prevent-display-sleep' keeps the screen and system
+// awake; 'prevent-app-suspension' is the belt-and-braces for Modern Standby
+// laptops, where the OS is eager to suspend background work the moment it thinks
+// nobody is looking. Re-asserted every minute in case something cleared them.
+let suspendBlockerId: number | null = null
+let blockerRenewTimer: NodeJS.Timeout | null = null
+export const BLOCKER_RENEW_MS = 60_000
+
 function startSleepPrevention(): void {
-  if (powerSaveId !== null) return
-  powerSaveId = powerSaveBlocker.start('prevent-display-sleep')
+  ensureBlockers()
+  if (!blockerRenewTimer) blockerRenewTimer = setInterval(ensureBlockers, BLOCKER_RENEW_MS)
+}
+
+function blockerAlive(id: number | null): boolean {
+  if (id === null) return false
+  return typeof powerSaveBlocker.isStarted === 'function' ? powerSaveBlocker.isStarted(id) : true
+}
+
+function ensureBlockers(): void {
+  if (!blockerAlive(powerSaveId)) powerSaveId = powerSaveBlocker.start('prevent-display-sleep')
+  if (!blockerAlive(suspendBlockerId)) suspendBlockerId = powerSaveBlocker.start('prevent-app-suspension')
 }
 
 function stopSleepPrevention(): void {
-  if (powerSaveId !== null) {
-    powerSaveBlocker.stop(powerSaveId)
-    powerSaveId = null
-  }
+  if (blockerRenewTimer) { clearInterval(blockerRenewTimer); blockerRenewTimer = null }
+  if (powerSaveId !== null) { powerSaveBlocker.stop(powerSaveId); powerSaveId = null }
+  if (suspendBlockerId !== null) { powerSaveBlocker.stop(suspendBlockerId); suspendBlockerId = null }
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +623,7 @@ export async function lock(config: LockConfig): Promise<void> {
     startInputBlocking()
     startSleepPrevention()
     startElapsedTimer()
+    startKiroCrewFeed()
   } catch (err) {
     // A rejection here — most often win.loadFile(), made more likely by the
     // disableHardwareAcceleration + in-process-gpu flags in index.ts —
@@ -573,6 +634,7 @@ export async function lock(config: LockConfig): Promise<void> {
     // underneath a screen-saver-level window. Unwind fully instead and hand
     // the machine back to the user.
     console.error('[LockController] Lock failed — unwinding to unlocked:', err)
+    stopKiroCrewFeed()
     stopElapsedTimer()
     stopSleepPrevention()
     stopInputBlocking()
@@ -584,6 +646,38 @@ export async function lock(config: LockConfig): Promise<void> {
 
   transitionTo('locked')
   console.log('[LockController] Locked')
+}
+
+// ---------------------------------------------------------------------------
+// KiroCrew feed — only while locked; every snapshot is pushed to every cover.
+// ---------------------------------------------------------------------------
+
+/** index.ts wires the live config; tests may inject a feed that does not shell out. */
+export function configureKiroCrewFeed(
+  getCfg: () => KiroCrewFeedConfig,
+  factory: typeof feedFactory = null,
+): void {
+  kirocrewConfigGetter = getCfg
+  feedFactory = factory
+}
+
+function startKiroCrewFeed(): void {
+  const getCfg = kirocrewConfigGetter
+  if (!getCfg) return
+  const onSnap = (snap: PulseSnapshot) => broadcastToLockWindows(IPC_CHANNELS.kirocrewPulse, snap)
+  if (!feed) feed = feedFactory ? feedFactory(getCfg, onSnap) : new KiroCrewFeed(getCfg, onSnap)
+  feed.start()
+}
+
+function stopKiroCrewFeed(): void {
+  feed?.stop()
+  feed = null
+}
+
+function broadcastToLockWindows(channel: string, payload: unknown): void {
+  for (const w of lockWindows) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload)
+  }
 }
 
 export async function unlock(config: LockConfig): Promise<void> {
@@ -651,6 +745,48 @@ export async function unlock(config: LockConfig): Promise<void> {
   }
 }
 
+/**
+ * Passphrase-mode unlock. `text` is either the passphrase or, once the recovery
+ * question has been offered, the recovery answer. Same failure counter and
+ * cooldown as the Windows path. Never transitions through 'unlocking' —
+ * verification is synchronous and there is no external dialog to wait on.
+ */
+export function unlockWithPassphrase(config: LockConfig, text: string): boolean {
+  if (lockState !== 'locked') return false
+  if (authInProgress) return false
+  if (config.authMode !== 'passphrase' || !config.passphrase) {
+    notifyLockWindows('auth-error', 'Passphrase unlock is not enabled.')
+    return false
+  }
+  if (failCount >= FAIL_MAX_BEFORE_COOLDOWN && failCooldownTimer) {
+    notifyLockWindows('auth-error', 'Too many failed attempts. Wait 30 seconds.')
+    return false
+  }
+  const typed = typeof text === 'string' ? text : ''
+  const recoveryOffered = failCount >= RECOVERY_AFTER_FAILURES && Boolean(config.recovery)
+  const ok = verifySecret(typed, config.passphrase) || (recoveryOffered && verifyRecovery(typed, config.recovery))
+  if (ok) {
+    doUnlock()
+    return true
+  }
+  failCount++
+  if (failCount >= RECOVERY_AFTER_FAILURES && config.recovery) {
+    // Offer the way back. The question is only ever sent after real failures.
+    broadcastToLockWindows('recovery-offered', config.recovery.question)
+    notifyLockWindows('auth-error', 'Incorrect. You can also type the answer to the question above.')
+  } else {
+    notifyLockWindows('auth-error', 'Incorrect passphrase. Try again.')
+  }
+  if (failCount >= FAIL_MAX_BEFORE_COOLDOWN && !failCooldownTimer) {
+    failCooldownTimer = setTimeout(() => {
+      // Lift the cooldown but keep recovery offered once it has been earned.
+      failCount = Math.min(failCount, RECOVERY_AFTER_FAILURES)
+      failCooldownTimer = null
+    }, FAIL_COOLDOWN_MS)
+  }
+  return false
+}
+
 export function quickUnlock(): void {
   if (lockState !== 'locked') return
   doUnlock()
@@ -665,6 +801,7 @@ function doUnlock(): void {
     stopInputBlocking()
     stopSleepPrevention()
     stopElapsedTimer()
+    stopKiroCrewFeed()
     destroyLockScreens()
     lockedAt = undefined
     transitionTo('unlocked')

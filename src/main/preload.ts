@@ -53,8 +53,25 @@ contextBridge.exposeInMainWorld('kiroBuddy', {
 
 // Lock screen preload extras — events from main to lock window
 contextBridge.exposeInMainWorld('kiroLock', {
-  onInit(handler: (data: { message: string; showElapsed: boolean; lockedAt: number; status?: string; requireAuth?: boolean }) => void): void {
+  onInit(handler: (data: {
+    message: string; showElapsed: boolean; lockedAt: number; status?: string
+    requireAuth?: boolean; authMode?: 'windows' | 'passphrase' | 'none'
+    recoveryAvailable?: boolean; kirocrewEnabled?: boolean
+  }) => void): void {
     ipcRenderer.on('lock-init', (_e, data) => handler(data))
+  },
+  /** Recovery question, sent by main only after repeated wrong passphrases. */
+  onRecoveryOffered(handler: (question: string) => void): void {
+    ipcRenderer.on('recovery-offered', (_e, q) => handler(typeof q === 'string' ? q : ''))
+  },
+  /** Latest KiroCrew activity snapshot (see kirocrewFeed.ts). */
+  onKiroCrewPulse(handler: (snapshot: unknown) => void): void {
+    ipcRenderer.on(IPC_CHANNELS.kirocrewPulse, (_e, snap) => handler(snap))
+  },
+  /** Passphrase or recovery answer. Main decides which it is. */
+  submitPassphrase(text: string): void {
+    if (typeof text !== 'string') return
+    ipcRenderer.send(IPC_CHANNELS.unlockWithPassphrase, text.slice(0, 512))
   },
   onStatus(handler: (payload: { status: string; message?: string }) => void): void {
     ipcRenderer.on('lock-status', (_e, payload) => handler(payload))
@@ -73,5 +90,26 @@ contextBridge.exposeInMainWorld('kiroLock', {
   },
   requestUnlock(): void {
     ipcRenderer.send(IPC_CHANNELS.unlockRequest)
+  },
+})
+
+// Settings window bridge. These channels are useless to any other window: the
+// main-process handlers refuse every sender except the settings window itself
+// (see settingsWindow.ts), so exposing them here does not widen the lock screen.
+contextBridge.exposeInMainWorld('kiroSettings', {
+  get(): Promise<unknown> {
+    return ipcRenderer.invoke(IPC_CHANNELS.settingsGet)
+  },
+  savePassphrase(input: { passphrase: string; confirm: string; question: string; answer: string }): Promise<unknown> {
+    return ipcRenderer.invoke(IPC_CHANNELS.settingsSavePassphrase, input)
+  },
+  saveKiroCrew(input: Record<string, unknown>): Promise<unknown> {
+    return ipcRenderer.invoke(IPC_CHANNELS.settingsSaveKiroCrew, input)
+  },
+  onShowPane(handler: (pane: string) => void): void {
+    ipcRenderer.on('settings-show-pane', (_e, p) => handler(String(p)))
+  },
+  close(): void {
+    ipcRenderer.send(IPC_CHANNELS.settingsClose)
   },
 })

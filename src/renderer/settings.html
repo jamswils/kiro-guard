@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Kiro Guard settings</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #0a0f0f; color: rgba(255,255,255,0.9); font-size: 14px; }
+  .tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: rgba(255,255,255,0.55); border-bottom: 2px solid transparent; }
+  .tab[aria-selected="true"] { color: #fff; border-bottom-color: #00d4aa; }
+  .pane { display: none; padding: 20px 24px; }
+  .pane[data-visible="true"] { display: block; }
+  h2 { font-size: 16px; margin: 0 0 6px; }
+  p.lead { margin: 0 0 16px; color: rgba(255,255,255,0.6); line-height: 1.45; }
+  label { display: block; margin: 12px 0 4px; color: rgba(255,255,255,0.75); font-size: 13px; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06); color: #fff; font-size: 14px; font-family: inherit; outline: none;
+  }
+  input:focus, select:focus { border-color: rgba(0,212,170,0.6); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .check input { width: auto; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  button { padding: 10px 18px; border-radius: 9px; border: 1px solid rgba(0,212,170,0.4); background: rgba(0,212,170,0.12); color: #fff; font-size: 14px; cursor: pointer; font-family: inherit; }
+  button.secondary { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .msg { min-height: 20px; margin-top: 12px; font-size: 13px; }
+  .msg[data-kind="error"] { color: #ff8a80; }
+  .msg[data-kind="ok"] { color: #00d4aa; }
+  .msg[data-kind="warn"] { color: #ffc460; }
+  pre.preview { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; max-height: 140px; overflow: auto; color: rgba(255,255,255,0.75); }
+  .current { font-size: 12.5px; color: rgba(255,255,255,0.5); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="tabs" role="tablist">
+  <div class="tab" role="tab" data-pane="passphrase" aria-selected="true">Passphrase</div>
+  <div class="tab" role="tab" data-pane="kirocrew" aria-selected="false">KiroCrew feed</div>
+</div>
+
+<section class="pane" id="pane-passphrase" data-visible="true">
+  <h2>Unlock with a Kiro Guard passphrase</h2>
+  <p class="lead">An alternative to the Windows password prompt: nothing to fight for focus, works offline.
+    Only a salted hash is stored (PBKDF2-SHA256, 300,000 rounds). After 5 wrong tries the lock screen offers your recovery question.</p>
+  <div class="current" id="passCurrent"></div>
+  <label for="pp1">New passphrase (6+ characters)</label>
+  <input id="pp1" type="password" autocomplete="new-password">
+  <label for="pp2">Repeat it</label>
+  <input id="pp2" type="password" autocomplete="new-password">
+  <label for="rq">Recovery question</label>
+  <input id="rq" type="text" value="Mother's maiden name">
+  <label for="ra">Recovery answer (case and spaces ignored)</label>
+  <input id="ra" type="text" autocomplete="off">
+  <div class="actions">
+    <button id="savePass">Save and use passphrase</button>
+    <button class="secondary" id="closePass">Close</button>
+  </div>
+  <div class="msg" id="passMsg"></div>
+</section>
+
+<section class="pane" id="pane-kirocrew" data-visible="false">
+  <h2>Show what KiroCrew is doing on the lock screen</h2>
+  <p class="lead">Kiro Guard asks the KiroCrew host for a read-only activity summary while the screen is locked:
+    which chats are moving, whether Kiro is replying or running tools, how many agents are running. It never reads message content; chat titles are the only text shown.</p>
+  <div class="check"><input type="checkbox" id="kcEnabled"><label for="kcEnabled" style="margin:0">Show KiroCrew activity while locked</label></div>
+  <label for="kcSource">Source</label>
+  <select id="kcSource">
+    <option value="ssh">ssh to the KiroCrew host (runs kiro_pulse.py there)</option>
+    <option value="file">local file kept fresh by something else</option>
+  </select>
+  <div id="sshFields">
+    <label for="kcHost">ssh host (as you would type after <code>ssh</code>)</label>
+    <input id="kcHost" type="text" placeholder="dev-dsk-alias-1a-xxxxxxxx.us-east-1.amazon.com">
+    <label for="kcScript">Path of kiro_pulse.py on that host</label>
+    <input id="kcScript" type="text">
+  </div>
+  <div id="fileFields" style="display:none">
+    <label for="kcFile">Status file</label>
+    <input id="kcFile" type="text" placeholder="C:\Users\you\.aki\freeze\status.txt">
+  </div>
+  <label for="kcInterval">Refresh every (seconds, min 5)</label>
+  <input id="kcInterval" type="number" min="5" step="1" value="10">
+  <div class="actions">
+    <button id="saveKc">Save</button>
+    <button class="secondary" id="testKc">Save and test now</button>
+    <button class="secondary" id="closeKc">Close</button>
+  </div>
+  <div class="msg" id="kcMsg"></div>
+  <pre class="preview" id="kcPreview" style="display:none"></pre>
+</section>
+
+<script>
+  var api = window.kiroSettings
+  function $(id) { return document.getElementById(id) }
+  function setMsg(id, text, kind) { var m = $(id); m.textContent = text || ''; m.dataset.kind = kind || '' }
+
+  function showPane(name) {
+    document.querySelectorAll('.pane').forEach(function (p) { p.dataset.visible = String(p.id === 'pane-' + name) })
+    document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-selected', String(t.dataset.pane === name)) })
+  }
+  document.querySelectorAll('.tab').forEach(function (t) { t.addEventListener('click', function () { showPane(t.dataset.pane) }) })
+  var initial = new URLSearchParams(location.search).get('pane')
+  if (initial === 'kirocrew') showPane('kirocrew')
+  if (api && api.onShowPane) api.onShowPane(showPane)
+
+  function applyView(v) {
+    if (!v) return
+    $('passCurrent').textContent = v.passphraseSet
+      ? ('A passphrase is set' + (v.recoveryQuestion ? ' · recovery question: “' + v.recoveryQuestion + '”' : '') + ' · current unlock mode: ' + v.authMode)
+      : 'No passphrase set yet · current unlock mode: ' + v.authMode
+    if (v.recoveryQuestion) $('rq').value = v.recoveryQuestion
+    var k = v.kirocrew || {}
+    $('kcEnabled').checked = Boolean(k.enabled)
+    $('kcSource').value = k.source || 'ssh'
+    $('kcHost').value = k.sshHost || ''
+    $('kcScript').value = k.remoteScript || ''
+    $('kcFile').value = k.statusFile || ''
+    $('kcInterval').value = Math.round((k.intervalMs || 10000) / 1000)
+    syncSourceFields()
+  }
+  function syncSourceFields() {
+    var ssh = $('kcSource').value === 'ssh'
+    $('sshFields').style.display = ssh ? '' : 'none'
+    $('fileFields').style.display = ssh ? 'none' : ''
+  }
+  $('kcSource').addEventListener('change', syncSourceFields)
+
+  if (api) api.get().then(applyView).catch(function (e) { setMsg('passMsg', 'Could not load settings: ' + e.message, 'error') })
+
+  $('savePass').addEventListener('click', function () {
+    var btn = $('savePass'); btn.disabled = true; setMsg('passMsg', 'Saving… (hashing takes a moment)', '')
+    api.savePassphrase({ passphrase: $('pp1').value, confirm: $('pp2').value, question: $('rq').value, answer: $('ra').value })
+      .then(function (r) {
+        if (!r || !r.ok) { setMsg('passMsg', (r && r.error) || 'Could not save.', 'error'); return }
+        $('pp1').value = ''; $('pp2').value = ''; $('ra').value = ''
+        applyView(r.view)
+        setMsg('passMsg', 'Saved. The lock screen now asks for this passphrase.', 'ok')
+      })
+      .catch(function (e) { setMsg('passMsg', e.message, 'error') })
+      .then(function () { btn.disabled = false })
+  })
+
+  function kcInput(test) {
+    return {
+      enabled: $('kcEnabled').checked,
+      source: $('kcSource').value,
+      sshHost: $('kcHost').value,
+      remoteScript: $('kcScript').value,
+      statusFile: $('kcFile').value,
+      intervalMs: Number($('kcInterval').value) * 1000,
+      test: Boolean(test),
+    }
+  }
+  function saveKc(test) {
+    $('saveKc').disabled = true; $('testKc').disabled = true
+    $('kcPreview').style.display = 'none'
+    setMsg('kcMsg', test ? 'Saved. Testing the connection…' : 'Saving…', '')
+    api.saveKiroCrew(kcInput(test))
+      .then(function (r) {
+        applyView(r && r.view)
+        if (!test) { setMsg('kcMsg', 'Saved.', 'ok'); return }
+        if (r && r.ok && r.snapshot) {
+          var s = r.snapshot
+          var lines = [s.headline + ' · ' + s.chatsActive + ' chats active · ' + s.agentsRunning + ' agents running']
+          ;(s.chats || []).forEach(function (c) { lines.push((c.active ? '▶ ' : '– ') + c.title + ' (' + c.state + ')') })
+          ;(s.lines || []).forEach(function (l) { lines.push(l) })
+          $('kcPreview').textContent = lines.join('\n'); $('kcPreview').style.display = ''
+          setMsg('kcMsg', 'Connected. This is what the lock screen will show.', 'ok')
+        } else {
+          setMsg('kcMsg', 'Saved, but the test read failed: ' + ((r && r.error) || 'unknown error') +
+            '. Usual causes: ssh needs a fresh session (mwinit), wrong host, or kiro_pulse.py is not at that path.', 'warn')
+        }
+      })
+      .catch(function (e) { setMsg('kcMsg', e.message, 'error') })
+      .then(function () { $('saveKc').disabled = false; $('testKc').disabled = false })
+  }
+  $('saveKc').addEventListener('click', function () { saveKc(false) })
+  $('testKc').addEventListener('click', function () { saveKc(true) })
+  $('closePass').addEventListener('click', function () { api.close() })
+  $('closeKc').addEventListener('click', function () { api.close() })
+</script>
+</body>
+</html>

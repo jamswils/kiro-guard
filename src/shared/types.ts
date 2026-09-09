@@ -61,16 +61,49 @@ export interface AppConfig {
   pollIntervalMs: number
   petScale: number
   lock: LockConfig
+  kirocrew: KiroCrewFeedConfig
   /** Bumped by configStore.runConfigMigrations(); absent on pre-migration installs. */
   configVersion?: number
 }
 
+/** How the lock screen is opened. 'none' = a click unlocks (the lock screen says so). */
+export type AuthMode = 'windows' | 'passphrase' | 'none'
+
+/** PBKDF2-SHA256 verifier. Base64 salt + hash; never the secret itself. */
+export interface SecretVerifier {
+  salt: string
+  hash: string
+  iterations: number
+}
+
+export interface RecoveryVerifier extends SecretVerifier {
+  question: string
+}
+
 export interface LockConfig {
   hotkey: string
+  /** Derived for callers: authMode !== 'none'. Persisted for old configs; authMode is the source of truth. */
   requireAuth: boolean
+  authMode: AuthMode
+  passphrase?: SecretVerifier
+  recovery?: RecoveryVerifier
   autoLockOnAgentStart: boolean
   showElapsedTime: boolean
   lockMessage: string
+}
+
+/**
+ * Live "what is KiroCrew doing" feed shown on the lock screen. Source 'ssh' runs
+ * kiro_pulse.py on the KiroCrew host; 'file' reads a local text/JSON file that
+ * something else keeps fresh (e.g. Freeze Screen's Sync-KiroPulse.ps1).
+ */
+export interface KiroCrewFeedConfig {
+  enabled: boolean
+  source: 'ssh' | 'file'
+  sshHost: string
+  remoteScript: string
+  statusFile: string
+  intervalMs: number
 }
 
 export interface OverlayWindowConfig {

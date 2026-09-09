@@ -59,13 +59,50 @@ and change settings.
 
 Right-click the tray icon and open **Settings** to turn these on or off:
 
-- **Ask for my password to unlock** — asks for your Windows password before
-  your screen comes back. **On by default.** Untick it if you only want a
-  visual cover that opens with a single click (the lock screen will say so).
+- **Unlock with** — choose how the cover opens. **Windows password** (default)
+  asks for your normal Windows password. **Kiro Guard passphrase** asks for a
+  passphrase you set inside Kiro Guard instead — no Windows dialog, works
+  offline, and after five wrong tries the lock screen offers your recovery
+  question. **Nothing** means a single click opens it (the lock screen says so).
+- **Set a passphrase…** — opens the small settings window to set or change the
+  passphrase and recovery question. Only a salted hash is stored, never the
+  passphrase itself.
+- **KiroCrew feed** — show live on the lock screen what your Kiro chats and
+  agents are doing. See "Show what KiroCrew is doing" below.
 - **Cover automatically when work starts** — throws the cover up on its own the
   moment a task kicks off. Handy if you wander off a lot.
 - **Show the timer** — a small clock showing how long the screen has been
   covered.
+
+## Show what KiroCrew is doing (optional)
+
+If you run KiroCrew on a cloud desktop, the lock screen can show — refreshed
+every 10 seconds — which of your Kiro chats are moving, whether Kiro is replying
+or running tools, how many agents are running, and when the last message was.
+Proof, at a glance, that the work is going on while you are away.
+
+1. Copy `scripts/kirocrew/kiro_pulse.py` to your KiroCrew host, for example to
+   `~/.kiro/crew/kiro-guard/kiro_pulse.py`. It is read-only: it looks at file
+   timestamps and running processes, never at message content. Chat titles are
+   the only text it shows.
+2. Right-click the tray icon → **Settings → KiroCrew feed…**, tick *Show KiroCrew
+   activity while locked*, enter the ssh name of your host and the script path,
+   and press **Save and test now**. It does one real read straight away so you
+   find out now — not while your screen is black — whether the connection works.
+3. Lock. The block under the status row shows the live feed; an amber
+   *feed stale* line means the connection dropped (usually an expired ssh/Midway
+   session) — the work itself is unaffected, only the display is out of date.
+
+Freeze Screen users: the *local file* source can read the same `status.txt` its
+`Sync-KiroPulse.ps1` keeps fresh, so one feed can serve both tools.
+
+## Keeping the work running
+
+Two changes in 1.1.0 are invisible but matter: the cover is a layered window
+(99% opaque) so Chrome and the Kiro IDE do not treat themselves as hidden and
+throttle the agents you are guarding, and Kiro Guard now holds both a
+display-sleep and an app-suspension blocker while locked, re-asserted every
+minute, for laptops that only support Modern Standby.
 
 Prefer a different hotkey? You can change it in the settings file at
 `Documents` ... actually, easiest is to just ask in the project's Issues page

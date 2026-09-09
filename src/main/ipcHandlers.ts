@@ -5,9 +5,20 @@ import {
   lock,
   unlock,
   quickUnlock,
+  unlockWithPassphrase,
   getCurrentLockState,
   getLockedAt,
 } from './lockController'
+
+/** Route an unlock request through whichever gate the config names. */
+async function unlockPerMode(): Promise<void> {
+  const config = getConfig()
+  switch (config.lock.authMode) {
+    case 'none':       quickUnlock(); return
+    case 'passphrase': return   // needs text; the lock screen sends unlockWithPassphrase instead
+    default:           await unlock(config.lock)
+  }
+}
 
 export function registerIpcHandlers(): void {
   // Lock / unlock requests from any window (lock overlay button etc.)
@@ -17,12 +28,13 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.on(IPC_CHANNELS.unlockRequest, async () => {
+    await unlockPerMode()
+  })
+
+  // Passphrase / recovery answer typed on the cover. Verified in the main process.
+  ipcMain.on(IPC_CHANNELS.unlockWithPassphrase, (_event, text: unknown) => {
     const config = getConfig()
-    if (config.lock.requireAuth) {
-      await unlock(config.lock)
-    } else {
-      quickUnlock()
-    }
+    unlockWithPassphrase(config.lock, typeof text === 'string' ? text.slice(0, 512) : '')
   })
 
   ipcMain.on(IPC_CHANNELS.toggleLock, async () => {
@@ -31,11 +43,7 @@ export function registerIpcHandlers(): void {
     if (state === 'unlocked') {
       await lock(config.lock)
     } else if (state === 'locked') {
-      if (config.lock.requireAuth) {
-        await unlock(config.lock)
-      } else {
-        quickUnlock()
-      }
+      await unlockPerMode()
     }
   })
 

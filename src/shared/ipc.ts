@@ -8,6 +8,15 @@ export const IPC_CHANNELS = {
   getLockState: 'get-lock-state',
   getConfig: 'get-config',
   setLockConfig: 'set-lock-config',
+  /** Lock screen -> main: passphrase or recovery answer typed on the cover. */
+  unlockWithPassphrase: 'unlock-passphrase',
+  /** Main -> lock screen: latest KiroCrew activity snapshot. */
+  kirocrewPulse: 'kirocrew-pulse',
+  /** Settings window <-> main. Handlers verify the sender is the settings window. */
+  settingsGet: 'settings-get',
+  settingsSavePassphrase: 'settings-save-passphrase',
+  settingsSaveKiroCrew: 'settings-save-kirocrew',
+  settingsClose: 'settings-close',
 } as const
 
 export interface MoveWindowPayload {

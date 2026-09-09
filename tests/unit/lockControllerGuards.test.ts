@@ -109,6 +109,7 @@ import * as path from 'path'
 const LOCK_CONFIG = {
   hotkey: 'Control+Shift+L',
   requireAuth: true,
+  authMode: 'windows' as const,
   autoLockOnAgentStart: false,
   showElapsedTime: true,
   lockMessage: 'locked',
