@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { getConfig, setLockConfig } from './configStore'
+import { getConfig } from './configStore'
 import { IPC_CHANNELS } from '../shared/ipc'
 import {
   lock,
@@ -45,12 +45,14 @@ export function registerIpcHandlers(): void {
     lockedAt: getLockedAt(),
   }))
 
-  ipcMain.handle(IPC_CHANNELS.getConfig, () => getConfig())
-
-  // Update lock config from settings UI
-  ipcMain.on(IPC_CHANNELS.setLockConfig, (_event, config: unknown) => {
-    if (config && typeof config === 'object') {
-      setLockConfig(config as any)
-    }
-  })
+  // getConfig / setLockConfig handlers deliberately NOT registered.
+  //
+  // setLockConfig accepted any object from any renderer (validated only as
+  // `typeof === 'object'`, then cast through `as any`) and persisted it, so a
+  // renderer could turn requireAuth off and unlock without a password, or
+  // write a garbage hotkey that silently killed the lock accelerator on the
+  // next launch. getConfig handed back the whole AppConfig including absolute
+  // filesystem paths. Neither was called by any renderer. Settings are owned
+  // by the tray menu, which calls setLockConfig() in-process — validation is
+  // therefore not the fix here; not having the channel is.
 }

@@ -1,0 +1,138 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+# Read-only by default; the release job opts in to contents: write explicitly.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the older CI run. Tag runs are
+# never cancelled, so a release build always finishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI — every push to main and every PR. Typecheck + full test suite.
+  # Runs on ubuntu: nothing in the gate is Windows-specific (the tests inject
+  # process.platform rather than reading it), and Linux runners are cheaper.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # The gate never launches Electron, so skip the ~100 MB binary.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Typecheck (main process)
+        run: npx tsc -p tsconfig.main.json --noEmit
+
+      - name: Typecheck (renderer)
+        run: npx tsc -p tsconfig.renderer.json --noEmit
+
+      - name: Test
+        run: npx jest --ci
+
+      # Proves the build scripts work, not just that types check.
+      - name: Build
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # RELEASE — only on a v* tag. Builds NSIS + portable on Windows and attaches
+  # both to a GitHub Release. Re-runs the full gate first, so a tag can never
+  # ship an artifact that failed typecheck or tests.
+  # ---------------------------------------------------------------------------
+  release:
+    name: windows installer + release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # electron-builder names artifacts from package.json, so a mismatch
+      # would silently produce "Kiro Guard Setup 1.0.0.exe" on a v1.0.1 tag.
+      - name: Verify tag matches package.json version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Write-Host "tag=$tag package.json=$pkg"
+          if ($tag -ne $pkg) {
+            Write-Error "Tag $tag does not match package.json version $pkg"
+            exit 1
+          }
+
+      - name: Typecheck (main process)
+        run: npx tsc -p tsconfig.main.json --noEmit
+
+      - name: Typecheck (renderer)
+        run: npx tsc -p tsconfig.renderer.json --noEmit
+
+      - name: Test
+        run: npx jest --ci
+
+      - name: Build main + renderer
+        run: npm run build
+
+      # Output lands in release/ per directories.output in the config.
+      # --publish never: the release step below owns publishing.
+      - name: Package NSIS installer + portable exe
+        run: npm run dist -- --win nsis portable --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List artifacts
+        shell: pwsh
+        run: Get-ChildItem release -File | Select-Object Name, Length
+
+      # Retained even on failure, so a broken upload is debuggable.
+      - name: Upload artifacts to the workflow run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiro-guard-windows-${{ github.ref_name }}
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release and attach installers
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Kiro Guard ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.exe

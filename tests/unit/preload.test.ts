@@ -35,17 +35,27 @@ describe('preload IPC bridge', () => {
   it('exposes kiroBuddy API with status, move-window, and lock methods', () => {
     expect(exposeInMainWorldMock).toHaveBeenCalledWith('kiroBuddy', expect.any(Object))
     expect(Object.keys(exposedApi()).sort()).toEqual([
-      'getConfig',
       'getLockState',
-      'lock',
       'moveWindow',
       'onLockState',
       'onStatusUpdate',
-      'setLockConfig',
       'toggleLock',
-      'unlock',
     ])
   })
+
+  it.each(['setLockConfig', 'getConfig', 'lock', 'unlock'])(
+    'does not expose %s to the renderer',
+    (method) => {
+      // These four formed a password-bypass chain reachable from the lock
+      // screen, which shares this preload: setLockConfig({ requireAuth:
+      // false }) persisted to disk, then unlock() took the no-auth path.
+      // getConfig additionally leaked absolute filesystem paths. Settings are
+      // owned by the tray in the main process. If a settings UI is ever added
+      // to a renderer, do NOT re-add these — pass a validated, narrowly typed
+      // channel instead, and re-check this test on purpose.
+      expect(exposedApi()).not.toHaveProperty(method)
+    },
+  )
 
   it('sends only valid move-window payloads', () => {
     const api = exposedApi()

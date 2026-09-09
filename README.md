@@ -59,8 +59,9 @@ and change settings.
 
 Right-click the tray icon and open **Settings** to turn these on or off:
 
-- **Ask for my password to unlock** — adds a password step before your screen
-  comes back. Off by default.
+- **Ask for my password to unlock** — asks for your Windows password before
+  your screen comes back. **On by default.** Untick it if you only want a
+  visual cover that opens with a single click (the lock screen will say so).
 - **Cover automatically when work starts** — throws the cover up on its own the
   moment a task kicks off. Handy if you wander off a lot.
 - **Show the timer** — a small clock showing how long the screen has been

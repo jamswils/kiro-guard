@@ -65,17 +65,40 @@ describe('registerIpcHandlers', () => {
   })
 
   it('registers all required IPC channels for lock control', () => {
-    // 4 fire-and-forget channels
-    expect(ipcMain.on).toHaveBeenCalledTimes(4)
+    // 3 fire-and-forget channels. setLockConfig is deliberately absent — see
+    // the dedicated test below.
+    expect(ipcMain.on).toHaveBeenCalledTimes(3)
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.lockRequest, expect.any(Function))
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.unlockRequest, expect.any(Function))
     expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.toggleLock, expect.any(Function))
-    expect(ipcMain.on).toHaveBeenCalledWith(IPC_CHANNELS.setLockConfig, expect.any(Function))
 
-    // 2 invoke handlers
-    expect(ipcMain.handle).toHaveBeenCalledTimes(2)
+    // 1 invoke handler. getConfig is deliberately absent — see below.
+    expect(ipcMain.handle).toHaveBeenCalledTimes(1)
     expect(ipcMain.handle).toHaveBeenCalledWith(IPC_CHANNELS.getLockState, expect.any(Function))
-    expect(ipcMain.handle).toHaveBeenCalledWith(IPC_CHANNELS.getConfig, expect.any(Function))
+  })
+
+  it('does not register the renderer-writable config channel', () => {
+    // setLockConfig previously accepted any object from any renderer
+    // (validated only as `typeof === 'object'`, then cast through `as any`)
+    // and persisted it — so a renderer could set requireAuth: false and then
+    // unlock with no password, or write a garbage hotkey that silently killed
+    // the lock accelerator on next launch. The tray calls setLockConfig()
+    // in-process; no renderer needs this channel.
+    expect(listeners.has(IPC_CHANNELS.setLockConfig)).toBe(false)
+    expect(ipcMain.on).not.toHaveBeenCalledWith(
+      IPC_CHANNELS.setLockConfig,
+      expect.any(Function),
+    )
+  })
+
+  it('does not register the config-read channel', () => {
+    // getConfig returned the whole AppConfig, including the absolute
+    // statusFilePath, to a renderer that never used it.
+    expect(handlers.has(IPC_CHANNELS.getConfig)).toBe(false)
+    expect(ipcMain.handle).not.toHaveBeenCalledWith(
+      IPC_CHANNELS.getConfig,
+      expect.any(Function),
+    )
   })
 
   it('does not register the retired move-window channel', () => {
@@ -119,9 +142,7 @@ describe('registerIpcHandlers', () => {
     expect(result).toEqual({ state: 'unlocked', lockedAt: undefined })
   })
 
-  it('getConfig returns the current configuration', () => {
-    const handler = handlers.get(IPC_CHANNELS.getConfig)
-    const result = handler!({}, undefined) as any
-    expect(result.lock.hotkey).toBe('Control+Shift+L')
+  it('getConfig is not reachable from a renderer', () => {
+    expect(handlers.get(IPC_CHANNELS.getConfig)).toBeUndefined()
   })
 })

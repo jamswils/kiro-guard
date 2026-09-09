@@ -22,14 +22,6 @@ contextBridge.exposeInMainWorld('kiroBuddy', {
     ipcRenderer.send(IPC_CHANNELS.moveWindow, position)
   },
 
-  lock(): void {
-    ipcRenderer.send(IPC_CHANNELS.lockRequest)
-  },
-
-  unlock(): void {
-    ipcRenderer.send(IPC_CHANNELS.unlockRequest)
-  },
-
   toggleLock(): void {
     ipcRenderer.send(IPC_CHANNELS.toggleLock)
   },
@@ -47,18 +39,21 @@ contextBridge.exposeInMainWorld('kiroBuddy', {
     return ipcRenderer.invoke(IPC_CHANNELS.getLockState)
   },
 
-  getConfig(): Promise<any> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getConfig)
-  },
-
-  setLockConfig(config: Partial<LockConfig>): void {
-    ipcRenderer.send(IPC_CHANNELS.setLockConfig, config)
-  },
+  // Deliberately NOT exposed: lock(), unlock(), getConfig(), setLockConfig().
+  //
+  // No renderer ever called them, and together they formed a password-bypass
+  // chain reachable from the lock screen itself (which shares this preload):
+  // setLockConfig({ requireAuth: false }) persisted to disk, then unlock()
+  // took the no-auth path. getConfig() additionally handed the renderer the
+  // whole AppConfig including absolute filesystem paths. Settings are owned
+  // by the tray menu in the main process; the lock screen only needs
+  // requestUnlock() on the kiroLock bridge below, which always routes
+  // through the auth gate in unlock().
 })
 
 // Lock screen preload extras — events from main to lock window
 contextBridge.exposeInMainWorld('kiroLock', {
-  onInit(handler: (data: { message: string; showElapsed: boolean; lockedAt: number; status?: string }) => void): void {
+  onInit(handler: (data: { message: string; showElapsed: boolean; lockedAt: number; status?: string; requireAuth?: boolean }) => void): void {
     ipcRenderer.on('lock-init', (_e, data) => handler(data))
   },
   onStatus(handler: (payload: { status: string; message?: string }) => void): void {
